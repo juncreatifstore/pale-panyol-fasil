@@ -8,9 +8,9 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 
 const PRICE = 625;
 const productImages = [
-  { src: "/pale-panyol-fasil.png", label: "Couverture" },
-  { src: "/pale-panyol-fasil.png", label: "Vue du livre" },
-  { src: "/pale-panyol-fasil.png", label: "Présentation" },
+  { src: "/pale-panyol-fasil-cover.jpg?v=2", label: "Couverture" },
+  { src: "/pale-panyol-fasil-cover.jpg?v=2", label: "Vue du livre" },
+  { src: "/pale-panyol-fasil-cover.jpg?v=2", label: "Présentation" },
 ];
 const deliveryOptions = [
   { id: "pickup-cdmx", title: "Retrait à Ciudad de México", detail: "Point de retrait confirmé après la commande", price: 0, icon: MapPin },
