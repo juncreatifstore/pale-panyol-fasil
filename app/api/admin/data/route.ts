@@ -40,13 +40,14 @@ export async function GET() {
     supabase.from("marketing_campaigns").select("*").order("updated_at", { ascending: false }).limit(100),
     supabase.from("integration_settings").select("*").order("provider"),
     supabase.from("integration_secret_status").select("provider,secret_key,configured_at").order("provider"),
+    supabase.from("sales_settings").select("*").eq("id", true).single(),
   ]);
   const failed = results.find((result) => result.error);
   if (failed?.error) return apiError(failed.error.message, 500);
-  const [orders, customers, locations, movements, batches, payments, shipments, budgets, campaigns, integrations, secretStatuses] = results;
+  const [orders, customers, locations, movements, batches, payments, shipments, budgets, campaigns, integrations, secretStatuses, salesSettings] = results;
   return NextResponse.json({
     orders: (orders.data ?? []).map((order) => ({ ...order, status_label: orderLabels[order.status] ?? order.status })),
-    customers: customers.data ?? [], locations: locations.data ?? [], movements: movements.data ?? [], batches: batches.data ?? [], payments: payments.data ?? [], shipments: shipments.data ?? [], budgets: budgets.data ?? [], campaigns: campaigns.data ?? [], integrations: integrations.data ?? [], secretStatuses: secretStatuses.data ?? [],
+    customers: customers.data ?? [], locations: locations.data ?? [], movements: movements.data ?? [], batches: batches.data ?? [], payments: payments.data ?? [], shipments: shipments.data ?? [], budgets: budgets.data ?? [], campaigns: campaigns.data ?? [], integrations: integrations.data ?? [], secretStatuses: secretStatuses.data ?? [], salesSettings: salesSettings.data ?? null,
   });
 }
 
@@ -154,6 +155,39 @@ export async function PATCH(request: Request) {
     const provider = clean(body.provider, 40), environment = clean(body.environment, 20);
     if (!integrationProviders.has(provider) || !["sandbox", "production"].includes(environment)) return apiError("Intégration invalide");
     const { error } = await supabase.from("integration_settings").update({ enabled: Boolean(body.enabled), environment, public_identifier: clean(body.publicIdentifier, 250) || null, webhook_configured: Boolean(body.webhookConfigured), updated_by: userId, updated_at: new Date().toISOString() }).eq("provider", provider);
+    return error ? apiError(error.message) : NextResponse.json({ success: true });
+  }
+  if (action === "sales_settings") {
+    const lines = (value: unknown) => clean(value, 10000).split("\n").map((line) => line.trim()).filter(Boolean);
+    const price = numeric(body.bookPrice, 625), pages = Math.trunc(numeric(body.bookPages, 278));
+    if (price < 0 || pages < 1) return apiError("Paramètres du livre invalides");
+    const { error } = await supabase.from("sales_settings").update({
+      book_price_mxn: price,
+      book_pages: pages,
+      book_chapters: clean(body.bookChapters, 3000) || null,
+      summary_pdf_url: clean(body.summaryPdfUrl, 1000) || null,
+      photo_urls: lines(body.photoUrls),
+      book_benefits: lines(body.bookBenefits),
+      testimonials: lines(body.testimonials),
+      tapachula_delivery: clean(body.tapachulaDelivery, 1000),
+      cdmx_delivery: clean(body.cdmxDelivery, 1000),
+      other_zones_delivery: clean(body.otherZonesDelivery, 1000),
+      after_sales_service: clean(body.afterSalesService, 1500),
+      origin_postal_code: clean(body.originPostalCode, 10) || null,
+      origin_city: clean(body.originCity, 100) || null,
+      origin_state: clean(body.originState, 100) || null,
+      origin_street: clean(body.originStreet, 200) || null,
+      origin_number: clean(body.originNumber, 30) || null,
+      origin_district: clean(body.originDistrict, 120) || null,
+      origin_phone: clean(body.originPhone, 30) || null,
+      package_weight_kg: numeric(body.packageWeight, 0) || null,
+      package_length_cm: numeric(body.packageLength, 22.86),
+      package_width_cm: numeric(body.packageWidth, 15.24),
+      package_height_cm: numeric(body.packageHeight, 1.6),
+      envia_carriers: lines(body.enviaCarriers),
+      updated_by: userId,
+      updated_at: new Date().toISOString(),
+    }).eq("id", true);
     return error ? apiError(error.message) : NextResponse.json({ success: true });
   }
   if (action === "integration_secret") {

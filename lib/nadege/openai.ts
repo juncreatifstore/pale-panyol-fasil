@@ -6,7 +6,7 @@ const responseValidator = z.object({
   messages: z.array(z.string().min(1).max(700)).min(1).max(3),
   buttons: z.array(z.object({ id: z.string().min(1).max(64), title: z.string().min(1).max(20) })).max(3),
   intent: z.enum(["choose_book", "ask_price", "ask_sample", "ask_why_spanish", "give_address", "confirm", "object_price", "smalltalk", "complaint", "other"]),
-  extracted: z.object({ full_name: z.string().nullable(), phone: z.string().nullable(), postal_code: z.string().nullable(), street: z.string().nullable(), colony: z.string().nullable(), references: z.string().nullable() }),
+  extracted: z.object({ full_name: z.string().nullable(), phone: z.string().nullable(), postal_code: z.string().nullable(), street: z.string().nullable(), colony: z.string().nullable(), city: z.string().nullable(), state: z.string().nullable(), delivery_zone: z.string().nullable(), metro_station: z.string().nullable(), references: z.string().nullable() }),
   next_action: z.enum(["none", "show_catalog", "send_photos", "send_sample", "show_price", "ask_zone", "ask_field", "request_shipping_quote", "show_summary", "create_payment_link", "send_tracking"]),
 });
 

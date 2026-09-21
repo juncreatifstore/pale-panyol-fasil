@@ -6,13 +6,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
-type Section = "dashboard" | "finances" | "stock" | "livraisons" | "commandes" | "marketing" | "integrations";
+type Section = "dashboard" | "sales" | "finances" | "stock" | "livraisons" | "commandes" | "marketing" | "integrations";
 type Row = Record<string, unknown>;
-type Data = { orders: Row[]; customers: Row[]; locations: Row[]; movements: Row[]; batches: Row[]; payments: Row[]; shipments: Row[]; budgets: Row[]; campaigns: Row[]; integrations: Row[]; secretStatuses: Row[] };
-const emptyData: Data = { orders: [], customers: [], locations: [], movements: [], batches: [], payments: [], shipments: [], budgets: [], campaigns: [], integrations: [], secretStatuses: [] };
+type Data = { orders: Row[]; customers: Row[]; locations: Row[]; movements: Row[]; batches: Row[]; payments: Row[]; shipments: Row[]; budgets: Row[]; campaigns: Row[]; integrations: Row[]; secretStatuses: Row[]; salesSettings: Row | null };
+const emptyData: Data = { orders: [], customers: [], locations: [], movements: [], batches: [], payments: [], shipments: [], budgets: [], campaigns: [], integrations: [], secretStatuses: [], salesSettings: null };
 
 const menu = [
-  ["dashboard", "Vue d’ensemble", LayoutDashboard], ["finances", "Finances", CircleDollarSign], ["stock", "Stock & production", Boxes], ["livraisons", "Livraisons", Truck], ["commandes", "Clients & commandes", Users], ["marketing", "Marketing", Megaphone], ["integrations", "API & intégrations", Settings2],
+  ["dashboard", "Vue d’ensemble", LayoutDashboard], ["sales", "Livre & vente", BookOpen], ["finances", "Finances", CircleDollarSign], ["stock", "Stock & production", Boxes], ["livraisons", "Livraisons", Truck], ["commandes", "Clients & commandes", Users], ["marketing", "Marketing", Megaphone], ["integrations", "API & intégrations", Settings2],
 ] as const;
 const pesos = new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN", maximumFractionDigits: 0 });
 const date = (value: unknown) => value ? new Intl.DateTimeFormat("fr-MX", { dateStyle: "medium" }).format(new Date(String(value))) : "—";
@@ -114,6 +114,8 @@ export default function AdminPage() {
           <Panel title="Commandes récentes" description="Données réelles Supabase"><Orders rows={data.orders.slice(0, 6)} onChange={(id, status) => void run("PATCH", { action: "order_status", id, status }, "Statut enregistré")} /></Panel>
         </>}
 
+        {section === "sales" && data.salesSettings && <SalesSettings item={data.salesSettings} saving={saving} onSubmit={submit("sales_settings", "PATCH", "Paramètres de vente enregistrés")} />}
+
         {section === "commandes" && <>
           <FormPanel title="Créer une commande" description="Le client et la commande seront créés ensemble." onSubmit={submit("create_order", "POST", "Commande créée")} saving={saving}>
             <Input name="fullName" label="Nom complet" required /><Input name="whatsapp" label="WhatsApp" /><Input name="email" label="E-mail" type="email" /><Input name="phone" label="Téléphone" /><Input name="city" label="Ville" /><Input name="state" label="État" /><Input name="postalCode" label="Code postal" /><Input name="address" label="Adresse" wide /><Select name="fulfillment" label="Mode de livraison" options={{ shipping: "Livraison", pickup_cdmx: "Retrait CDMX", pickup_tapachula: "Retrait Tapachula" }} /><Input name="quantity" label="Quantité" type="number" defaultValue="1" required /><Input name="unitPrice" label="Prix unitaire MXN" type="number" defaultValue="625" required /><Input name="shippingPrice" label="Livraison MXN" type="number" defaultValue="0" /><Select name="status" label="Statut initial" options={orderStatus} /><Input name="notes" label="Notes" wide />
@@ -166,6 +168,38 @@ function InputInline({ defaultValue, onBlur, type = "text" }: { defaultValue: st
 function Orders({ rows, onChange }: { rows: Row[]; onChange: (id: string, status: string) => void }) { return <div className="overflow-x-auto"><table className="w-full min-w-[900px] text-sm"><thead className="bg-slate-50 text-left text-xs uppercase text-slate-500"><tr>{["Commande", "Client", "Ville", "Quantité", "Total", "Date", "Statut"].map((h) => <th key={h} className="px-5 py-3">{h}</th>)}</tr></thead><tbody>{rows.map((item) => { const customer = item.customers as Row | null; return <tr key={str(item.id)} className="border-t"><td className="px-5 py-4 font-black text-[#123f91]">{str(item.order_number)}</td><td className="px-5 py-4 font-bold">{str(customer?.full_name)}</td><td className="px-5 py-4">{str(customer?.city) || "—"}</td><td className="px-5 py-4">{str(item.quantity)}</td><td className="px-5 py-4 font-black">{money(item.total_mxn)}</td><td className="px-5 py-4">{date(item.created_at)}</td><td className="px-5 py-4"><select value={str(item.status)} onChange={(e) => onChange(str(item.id), e.target.value)} className="rounded-lg border px-2 py-2">{Object.entries(orderStatus).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></td></tr>; })}</tbody></table>{rows.length === 0 && <Empty />}</div>; }
 function DataTable({ headers, rows }: { headers: string[]; rows: string[][] }) { return <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-sm"><thead className="bg-slate-50 text-left text-xs uppercase text-slate-500"><tr>{headers.map((h) => <th key={h} className="px-5 py-3">{h}</th>)}</tr></thead><tbody>{rows.map((row, index) => <tr key={`${row[0]}-${index}`} className="border-t">{row.map((cell, i) => <td key={i} className={`px-5 py-4 ${i === 0 ? "font-bold text-slate-950" : ""}`}>{cell || "—"}</td>)}</tr>)}</tbody></table>{rows.length === 0 && <Empty />}</div>; }
 function Empty() { return <div className="p-10 text-center text-sm text-slate-500">Aucune donnée enregistrée.</div>; }
+function SalesSettings({ item, saving, onSubmit }: { item: Row; saving: boolean; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
+  const list = (value: unknown) => Array.isArray(value) ? value.join("\n") : "";
+  return <Panel title="Configuration du livre et du parcours de vente" description="Ces données sont utilisées en temps réel par Nadège. N’ajoutez que des témoignages clients réels.">
+    <form onSubmit={onSubmit} className="grid gap-4 p-5 md:grid-cols-2 xl:grid-cols-4">
+      <Input name="bookPrice" label="Prix du livre (MXN)" type="number" step="0.01" defaultValue={str(item.book_price_mxn)} required />
+      <Input name="bookPages" label="Nombre de pages" type="number" defaultValue={str(item.book_pages)} required />
+      <Input name="bookChapters" label="Chapitres / sommaire" defaultValue={str(item.book_chapters)} wide />
+      <Input name="summaryPdfUrl" label="URL du PDF résumé" type="url" defaultValue={str(item.summary_pdf_url)} wide />
+      <TextArea name="photoUrls" label="Photos du livre — une URL par ligne" defaultValue={list(item.photo_urls)} />
+      <TextArea name="bookBenefits" label="Avantages réels — un par ligne" defaultValue={list(item.book_benefits)} />
+      <TextArea name="testimonials" label="Expériences clients réelles — une par ligne" defaultValue={list(item.testimonials)} />
+      <TextArea name="afterSalesService" label="Service après-vente" defaultValue={str(item.after_sales_service)} />
+      <TextArea name="tapachulaDelivery" label="Livraison gratuite Tapachula" defaultValue={str(item.tapachula_delivery)} />
+      <TextArea name="cdmxDelivery" label="Livraison gratuite CDMX / métro" defaultValue={str(item.cdmx_delivery)} />
+      <TextArea name="otherZonesDelivery" label="Autres zones du Mexique" defaultValue={str(item.other_zones_delivery)} />
+      <TextArea name="enviaCarriers" label="Transporteurs Envia — un par ligne" defaultValue={list(item.envia_carriers)} />
+      <Input name="originPostalCode" label="CP d’expédition" defaultValue={str(item.origin_postal_code)} />
+      <Input name="originCity" label="Ville d’expédition" defaultValue={str(item.origin_city)} />
+      <Input name="originState" label="État d’expédition" defaultValue={str(item.origin_state)} />
+      <Input name="originDistrict" label="Colonia d’expédition" defaultValue={str(item.origin_district)} />
+      <Input name="originStreet" label="Rue d’expédition" defaultValue={str(item.origin_street)} />
+      <Input name="originNumber" label="Numéro d’expédition" defaultValue={str(item.origin_number)} />
+      <Input name="originPhone" label="Téléphone expéditeur" defaultValue={str(item.origin_phone)} />
+      <Input name="packageWeight" label="Poids du colis (kg)" type="number" step="0.001" defaultValue={str(item.package_weight_kg)} />
+      <Input name="packageLength" label="Longueur (cm)" type="number" step="0.01" defaultValue={str(item.package_length_cm)} />
+      <Input name="packageWidth" label="Largeur (cm)" type="number" step="0.01" defaultValue={str(item.package_width_cm)} />
+      <Input name="packageHeight" label="Hauteur (cm)" type="number" step="0.01" defaultValue={str(item.package_height_cm)} />
+      <button disabled={saving} className="rounded-xl bg-[#123f91] px-4 py-3 font-bold text-white md:col-span-2 xl:col-span-4">{saving ? "Enregistrement…" : "Enregistrer le parcours de vente"}</button>
+    </form>
+  </Panel>;
+}
+function TextArea({ name, label, defaultValue }: { name: string; label: string; defaultValue?: string }) { return <label className="text-sm font-bold text-slate-700 md:col-span-2"><span>{label}</span><textarea name={name} defaultValue={defaultValue} rows={4} className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 font-normal outline-none focus:border-[#123f91]" /></label>; }
 function IntegrationCard({ item, statuses, saving, onSave, onSecret, onDeleteSecret }: { item: Row; statuses: Row[]; saving: boolean; onSave: (payload: Row) => void; onSecret: (payload: Row) => void; onDeleteSecret: (payload: Row) => void }) {
   const [enabled, setEnabled] = useState(Boolean(item.enabled));
   const [environment, setEnvironment] = useState(str(item.environment) || "sandbox");
