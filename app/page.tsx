@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import { BookOpen, Check, ChevronLeft, ChevronRight, Download, MapPin, MessageCircle, Minus, PackageCheck, Plus, ShieldCheck, ShoppingBag, Truck, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -8,9 +9,9 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 
 const PRICE = 625;
 const productImages = [
-  { src: "/pale-panyol-fasil-cover.jpg?v=2", label: "Couverture" },
-  { src: "/pale-panyol-fasil-cover.jpg?v=2", label: "Vue du livre" },
-  { src: "/pale-panyol-fasil-cover.jpg?v=2", label: "Présentation" },
+  { src: "/pale-panyol-fasil-cover.jpg", label: "Couverture" },
+  { src: "/pale-panyol-fasil-cover.jpg", label: "Vue du livre" },
+  { src: "/pale-panyol-fasil-cover.jpg", label: "Présentation" },
 ];
 const deliveryOptions = [
   { id: "pickup-cdmx", title: "Retrait à Ciudad de México", detail: "Point de retrait confirmé après la commande", price: 0, icon: MapPin },
@@ -75,7 +76,7 @@ export default function Home() {
 
       <section id="inicio" className="mx-auto grid max-w-7xl gap-10 px-5 py-10 lg:grid-cols-[1.05fr_.95fr] lg:px-8 lg:py-16">
         <div className="relative aspect-[4/3] self-start overflow-hidden rounded-[2rem] bg-[#123f91] shadow-2xl shadow-blue-950/15">
-          <img src={productImages[activeImage].src} alt={`${productImages[activeImage].label} du livre Pale Panyol Fasil`} className="absolute inset-0 h-full w-full object-contain object-center" />
+          <Image src={productImages[activeImage].src} alt={`${productImages[activeImage].label} du livre Pale Panyol Fasil`} fill priority sizes="(min-width: 1024px) 52vw, 100vw" className="object-contain object-center" />
           <button onClick={() => setActiveImage((activeImage + 2) % 3)} aria-label="Photo précédente" className="absolute left-4 top-1/2 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full bg-white/90 shadow"><ChevronLeft /></button>
           <button onClick={() => setActiveImage((activeImage + 1) % 3)} aria-label="Photo suivante" className="absolute right-4 top-1/2 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full bg-white/90 shadow"><ChevronRight /></button>
           <div className="absolute bottom-4 left-4 rounded-full bg-white/90 px-4 py-2 text-sm font-bold">{activeImage + 1} / 3 · {productImages[activeImage].label}</div>
