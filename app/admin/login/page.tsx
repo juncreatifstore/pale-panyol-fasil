@@ -13,21 +13,12 @@ export default function AdminLoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [setupMode, setSetupMode] = useState(false);
-  const [message, setMessage] = useState("");
 
   async function signIn(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setLoading(true);
     setError("");
     const supabase = createSupabaseBrowserClient();
-    if (setupMode) {
-      const { error: signUpError } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: `${window.location.origin}/admin/login` } });
-      if (signUpError) setError(signUpError.message);
-      else setMessage("Compte créé. Vérifiez votre e-mail, puis revenez vous connecter.");
-      setLoading(false);
-      return;
-    }
     const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
     if (signInError) {
       setError("Adresse e-mail ou mot de passe incorrect.");
@@ -49,16 +40,14 @@ export default function AdminLoginPage() {
         <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-7 shadow-xl sm:p-9">
           <div className="mb-8 lg:hidden"><span className="grid h-12 w-12 place-items-center rounded-2xl bg-[#123f91] text-white"><BookOpen /></span></div>
           <span className="grid h-11 w-11 place-items-center rounded-xl bg-blue-50 text-[#123f91]"><LockKeyhole size={21} /></span>
-          <h2 className="mt-5 text-3xl font-black text-slate-950">{setupMode ? "Créer le compte admin" : "Connexion admin"}</h2>
-          <p className="mt-2 text-sm leading-6 text-slate-500">{setupMode ? "Créez le premier compte, puis il sera autorisé comme super administrateur." : "Utilisez votre compte administrateur Pale Panyol Fasil."}</p>
+          <h2 className="mt-5 text-3xl font-black text-slate-950">Connexion admin</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-500">Utilisez votre compte administrateur Pale Panyol Fasil.</p>
           <form onSubmit={signIn} className="mt-7 space-y-5">
             <label className="block text-sm font-bold text-slate-700">Adresse e-mail<input required type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 font-normal outline-none focus:border-[#123f91] focus:ring-2 focus:ring-blue-100" placeholder="admin@exemple.com" /></label>
             <label className="block text-sm font-bold text-slate-700">Mot de passe<div className="relative mt-2"><input required type={showPassword ? "text" : "password"} autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} className="w-full rounded-xl border border-slate-200 px-4 py-3 pr-12 font-normal outline-none focus:border-[#123f91] focus:ring-2 focus:ring-blue-100" /><button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-500" aria-label="Afficher le mot de passe">{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button></div></label>
             {error && <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</p>}
-            {message && <p className="rounded-xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">{message}</p>}
-            <button disabled={loading} className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#123f91] px-4 py-3.5 font-bold text-white hover:bg-[#0d347c] disabled:opacity-60">{loading && <Loader2 size={18} className="animate-spin" />}{setupMode ? "Créer mon compte" : "Se connecter"}</button>
+            <button disabled={loading} className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#123f91] px-4 py-3.5 font-bold text-white hover:bg-[#0d347c] disabled:opacity-60">{loading && <Loader2 size={18} className="animate-spin" />}Se connecter</button>
           </form>
-          <button onClick={() => { setSetupMode(!setupMode); setError(""); setMessage(""); }} className="mt-5 w-full text-center text-sm font-bold text-[#123f91]">{setupMode ? "J’ai déjà un compte" : "Créer le premier compte administrateur"}</button>
           <Link href="/" className="mt-4 block text-center text-sm font-bold text-slate-500">Retour à la boutique</Link>
         </div>
       </section>
