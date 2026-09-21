@@ -43,6 +43,7 @@
     "db",
     "build",
     "scripts",
+    "supabase/functions",
     "vite.config.ts",
     "cloudflare-env.d.ts"
   ]
