@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   ArrowDownRight,
@@ -32,9 +32,12 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 type Section = "dashboard" | "finances" | "stock" | "livraisons" | "commandes" | "marketing" | "integrations";
 type OrderStatus = "Payée" | "Préparation" | "Expédiée" | "Livrée";
+type AdminOrder = { id: string; client: string; city: string; total: number; status: OrderStatus; date: string };
 
 const menu: { id: Section; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "dashboard", label: "Vue d’ensemble", icon: LayoutDashboard },
@@ -46,12 +49,7 @@ const menu: { id: Section; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "integrations", label: "API & intégrations", icon: Settings2 },
 ];
 
-const ordersSeed = [
-  { id: "PPF-1048", client: "Mireille Joseph", city: "Ciudad de México", total: 625, status: "Payée" as OrderStatus, date: "Aujourd’hui, 10:42" },
-  { id: "PPF-1047", client: "Jean Robert", city: "Tapachula", total: 1250, status: "Préparation" as OrderStatus, date: "Aujourd’hui, 09:18" },
-  { id: "PPF-1046", client: "Nadia Pierre", city: "Puebla", total: 774, status: "Expédiée" as OrderStatus, date: "Hier, 16:05" },
-  { id: "PPF-1045", client: "Samuel Louis", city: "Monterrey", total: 774, status: "Livrée" as OrderStatus, date: "20 sept., 14:31" },
-];
+const ordersSeed: AdminOrder[] = [];
 
 const integrations = [
   { name: "Mercado Pago", detail: "Paiement principal au Mexique", icon: CreditCard, state: "À connecter", tone: "amber" },
@@ -101,29 +99,67 @@ function Panel({ title, description, children, action }: { title: string; descri
 }
 
 export default function AdminPage() {
+  const router = useRouter();
   const [section, setSection] = useState<Section>("dashboard");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [orders, setOrders] = useState(ordersSeed);
-  const [stock, setStock] = useState(86);
-  const [marketingBudget, setMarketingBudget] = useState(12000);
+  const [stock, setStock] = useState(0);
+  const [marketingBudget, setMarketingBudget] = useState(0);
   const [search, setSearch] = useState("");
   const [showSecret, setShowSecret] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const filteredOrders = useMemo(() => orders.filter((order) => `${order.id} ${order.client} ${order.city}`.toLowerCase().includes(search.toLowerCase())), [orders, search]);
   const title = menu.find((item) => item.id === section)?.label ?? "Administration";
+  const revenue = orders.reduce((sum, order) => sum + order.total, 0);
+
+  useEffect(() => {
+    void fetch("/api/admin/data", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Impossible de charger les données");
+        return response.json();
+      })
+      .then((data: { orders: AdminOrder[]; stock: number; marketingBudget: number }) => {
+        setOrders(data.orders);
+        setStock(data.stock);
+        setMarketingBudget(data.marketingBudget);
+      })
+      .catch(() => setNotice("Impossible de charger les données Supabase"))
+      .finally(() => setLoading(false));
+  }, []);
 
   const flash = (message: string) => {
     setNotice(message);
     window.setTimeout(() => setNotice(null), 2600);
   };
 
-  const changeOrderStatus = (id: string, status: OrderStatus) => {
+  const changeOrderStatus = async (id: string, status: OrderStatus) => {
+    const response = await fetch("/api/admin/data", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "order_status", id, status }) });
+    if (!response.ok) return flash("La mise à jour a échoué");
     setOrders((current) => current.map((order) => order.id === id ? { ...order, status } : order));
     flash(`Commande ${id} mise à jour`);
   };
 
+  const adjustStock = async (delta: number) => {
+    const response = await fetch("/api/admin/data", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "stock", delta }) });
+    if (!response.ok) return flash("La mise à jour du stock a échoué");
+    const data = await response.json() as { stock: number };
+    setStock(data.stock);
+    flash(delta > 0 ? `${delta} exemplaires ajoutés` : "Sortie de stock enregistrée");
+  };
+
+  const saveMarketingBudget = async () => {
+    const response = await fetch("/api/admin/data", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "marketing_budget", amount: marketingBudget }) });
+    flash(response.ok ? "Budget marketing enregistré" : "L’enregistrement du budget a échoué");
+  };
+
   const selectSection = (id: Section) => { setSection(id); setMobileOpen(false); };
+  const signOut = async () => {
+    await createSupabaseBrowserClient().auth.signOut();
+    router.replace("/admin/login");
+    router.refresh();
+  };
 
   return (
     <main className="min-h-screen bg-[#f4f6f9] text-slate-800">
@@ -137,7 +173,7 @@ export default function AdminPage() {
         <nav className="flex-1 space-y-1 overflow-y-auto p-4">
           {menu.map(({ id, label, icon: Icon }) => <button key={id} onClick={() => selectSection(id)} className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-sm font-bold transition ${section === id ? "bg-white text-[#123f91] shadow-lg" : "text-blue-50 hover:bg-white/10"}`}><Icon size={19} /><span>{label}</span>{section === id && <ChevronRight size={16} className="ml-auto" />}</button>)}
         </nav>
-        <div className="border-t border-white/10 p-4"><Link href="/" className="flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-bold text-blue-50 hover:bg-white/10"><LogOut size={18} />Retour à la boutique</Link></div>
+        <div className="space-y-1 border-t border-white/10 p-4"><Link href="/" className="flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-bold text-blue-50 hover:bg-white/10"><BookOpen size={18} />Retour à la boutique</Link><button onClick={() => void signOut()} className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-bold text-blue-50 hover:bg-white/10"><LogOut size={18} />Se déconnecter</button></div>
       </aside>
 
       {mobileOpen && <button className="fixed inset-0 z-40 bg-slate-950/40 lg:hidden" onClick={() => setMobileOpen(false)} aria-label="Fermer le menu" />}
@@ -149,12 +185,12 @@ export default function AdminPage() {
         </header>
 
         <div className="mx-auto max-w-[1500px] space-y-6 p-4 sm:p-7">
-          <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-900"><b>Mode préparation :</b> les données affichées servent à valider le tableau de bord. La connexion Supabase activera ensuite la sauvegarde réelle.</div>
+          <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-900"><b>Supabase connecté :</b> {loading ? "chargement des données…" : "les modifications sont enregistrées dans la base sécurisée."}</div>
 
           {section === "dashboard" && <>
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              <Metric label="Ventes ce mois" value="$48 750 MXN" change="+18,4 % vs mois dernier" icon={CircleDollarSign} />
-              <Metric label="Commandes" value="78" change="+12 nouvelles" icon={ShoppingBag} />
+              <Metric label="Ventes enregistrées" value={pesos.format(revenue)} change="Données Supabase" icon={CircleDollarSign} />
+              <Metric label="Commandes" value={`${orders.length}`} change="Total enregistré" icon={ShoppingBag} />
               <Metric label="Livres disponibles" value={`${stock}`} change="Seuil d’alerte : 25" icon={Boxes} />
               <Metric label="Budget marketing" value={pesos.format(marketingBudget)} change="58 % déjà utilisé" positive={false} icon={Megaphone} />
             </div>
@@ -169,14 +205,14 @@ export default function AdminPage() {
           </>}
 
           {section === "finances" && <>
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Metric label="Revenu brut" value="$48 750 MXN" change="78 livres vendus" icon={CircleDollarSign} /><Metric label="Frais de paiement" value="$1 926 MXN" change="3,95 % du revenu" positive={false} icon={CreditCard} /><Metric label="Livraisons encaissées" value="$6 407 MXN" change="49 expéditions" icon={Truck} /><Metric label="Bénéfice estimé" value="$25 210 MXN" change="51,7 % de marge" icon={BarChart3} /></div>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Metric label="Revenu brut" value={pesos.format(revenue)} change={`${orders.length} commandes`} icon={CircleDollarSign} /><Metric label="Frais de paiement" value="$0 MXN" change="Calculé depuis les paiements" positive={false} icon={CreditCard} /><Metric label="Livraisons encaissées" value="$0 MXN" change="Calculé automatiquement" icon={Truck} /><Metric label="Bénéfice estimé" value={pesos.format(revenue)} change="Avant frais et production" icon={BarChart3} /></div>
             <Panel title="Mouvements financiers" description="Paiements, frais et remboursements"><div className="overflow-x-auto"><table className="w-full min-w-[720px] text-sm"><thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-5 py-3">Référence</th><th className="px-5 py-3">Type</th><th className="px-5 py-3">Méthode</th><th className="px-5 py-3">Date</th><th className="px-5 py-3 text-right">Montant</th></tr></thead><tbody>{[
               ["MP-934821", "Vente", "Mercado Pago", "21 sept. 10:42", "+$625"], ["MP-FEE-821", "Frais", "Mercado Pago", "21 sept. 10:42", "-$24"], ["STR-1044", "Vente", "Stripe", "20 sept. 18:20", "+$774"], ["REF-1031", "Remboursement", "Mercado Pago", "18 sept. 09:11", "-$625"],
             ].map((row) => <tr key={row[0]} className="border-t border-slate-100"><td className="px-5 py-4 font-bold text-slate-900">{row[0]}</td><td className="px-5 py-4">{row[1]}</td><td className="px-5 py-4">{row[2]}</td><td className="px-5 py-4 text-slate-500">{row[3]}</td><td className={`px-5 py-4 text-right font-black ${String(row[4]).startsWith("+") ? "text-emerald-600" : "text-rose-600"}`}>{row[4]} MXN</td></tr>)}</tbody></table></div></Panel>
           </>}
 
           {section === "stock" && <div className="grid gap-6 xl:grid-cols-[1.1fr_.9fr]">
-            <Panel title="Inventaire du livre" description="Stock disponible par emplacement"><div className="p-5"><div className="flex flex-col gap-6 rounded-2xl bg-[#102c64] p-6 text-white sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm text-blue-100">Stock total disponible</p><p className="mt-1 text-5xl font-black">{stock}</p><p className="mt-2 text-sm text-blue-100">Pale Panyol Fasil · Édition brochée</p></div><div className="flex gap-2"><button onClick={() => { setStock(Math.max(0, stock - 1)); flash("Sortie de stock enregistrée"); }} className="rounded-xl bg-white/10 px-4 py-3 text-sm font-bold hover:bg-white/20">− Sortie</button><button onClick={() => { setStock(stock + 25); flash("25 exemplaires ajoutés"); }} className="rounded-xl bg-white px-4 py-3 text-sm font-bold text-[#123f91]">+ 25 livres</button></div></div><div className="mt-5 grid gap-3 sm:grid-cols-3">{[["CDMX", 51], ["Tapachula", 23], ["Réservé", 12]].map(([label, value]) => <div key={label} className="rounded-xl border border-slate-200 p-4"><p className="text-sm text-slate-500">{label}</p><p className="mt-1 text-2xl font-black text-slate-950">{value}</p></div>)}</div></div></Panel>
+            <Panel title="Inventaire du livre" description="Stock disponible par emplacement"><div className="p-5"><div className="flex flex-col gap-6 rounded-2xl bg-[#102c64] p-6 text-white sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm text-blue-100">Stock total disponible</p><p className="mt-1 text-5xl font-black">{stock}</p><p className="mt-2 text-sm text-blue-100">Pale Panyol Fasil · Édition brochée</p></div><div className="flex gap-2"><button onClick={() => void adjustStock(-1)} className="rounded-xl bg-white/10 px-4 py-3 text-sm font-bold hover:bg-white/20">− Sortie</button><button onClick={() => void adjustStock(25)} className="rounded-xl bg-white px-4 py-3 text-sm font-bold text-[#123f91]">+ 25 livres</button></div></div><div className="mt-5 grid gap-3 sm:grid-cols-3">{[["Disponible", stock], ["Seuil d’alerte", 25], ["Réservé", 0]].map(([label, value]) => <div key={label} className="rounded-xl border border-slate-200 p-4"><p className="text-sm text-slate-500">{label}</p><p className="mt-1 text-2xl font-black text-slate-950">{value}</p></div>)}</div></div></Panel>
             <Panel title="Production" description="Prochaine impression"><div className="space-y-5 p-5"><div><div className="mb-2 flex justify-between text-sm"><span className="font-bold">Lot #PPF-002</span><span className="text-slate-500">100 exemplaires</span></div><div className="h-3 overflow-hidden rounded-full bg-slate-100"><div className="h-full w-[42%] rounded-full bg-[#df482f]" /></div><p className="mt-2 text-xs text-slate-500">Mise en page validée · Impression à confirmer</p></div><div className="grid grid-cols-2 gap-3"><div className="rounded-xl bg-slate-50 p-4"><p className="text-xs text-slate-500">Coût estimé</p><p className="mt-1 font-black text-slate-950">$18 500 MXN</p></div><div className="rounded-xl bg-slate-50 p-4"><p className="text-xs text-slate-500">Livraison prévue</p><p className="mt-1 font-black text-slate-950">12 octobre</p></div></div><button onClick={() => flash("Plan de production mis à jour")} className="w-full rounded-xl bg-[#123f91] px-4 py-3 text-sm font-bold text-white">Mettre à jour la production</button></div></Panel>
           </div>}
 
@@ -190,7 +226,7 @@ export default function AdminPage() {
           {section === "commandes" && <Panel title="Clients et commandes" description={`${orders.length} commandes dans cette vue`} action={<div className="relative"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Rechercher…" className="w-full rounded-xl border border-slate-200 py-2 pl-9 pr-3 text-sm outline-none focus:border-[#123f91] sm:w-64" /></div>}><OrderTable orders={filteredOrders} onStatus={changeOrderStatus} /></Panel>}
 
           {section === "marketing" && <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
-            <Panel title="Budget marketing" description="Plan mensuel de septembre"><div className="space-y-5 p-5"><div className="rounded-2xl bg-[#102c64] p-6 text-white"><p className="text-sm text-blue-100">Budget total</p><p className="mt-1 text-4xl font-black">{pesos.format(marketingBudget)}</p><input aria-label="Budget marketing" type="range" min="2000" max="30000" step="1000" value={marketingBudget} onChange={(event) => setMarketingBudget(Number(event.target.value))} className="mt-6 w-full accent-[#df482f]" /></div>{[["Meta Ads", 4800, 40], ["TikTok Ads", 1800, 15], ["Influenceurs", 2400, 20], ["Impressions & événements", 3000, 25]].map(([name, value, percent]) => <div key={String(name)}><div className="mb-2 flex justify-between text-sm"><span className="font-bold">{name}</span><span>{pesos.format(Number(value))}</span></div><div className="h-2 rounded-full bg-slate-100"><div className="h-2 rounded-full bg-[#123f91]" style={{ width: `${percent}%` }} /></div></div>)}<button onClick={() => flash("Budget marketing enregistré")} className="w-full rounded-xl bg-[#df482f] px-4 py-3 text-sm font-bold text-white">Enregistrer le budget</button></div></Panel>
+            <Panel title="Budget marketing" description="Plan mensuel de septembre"><div className="space-y-5 p-5"><div className="rounded-2xl bg-[#102c64] p-6 text-white"><p className="text-sm text-blue-100">Budget total</p><p className="mt-1 text-4xl font-black">{pesos.format(marketingBudget)}</p><input aria-label="Budget marketing" type="range" min="2000" max="30000" step="1000" value={marketingBudget} onChange={(event) => setMarketingBudget(Number(event.target.value))} className="mt-6 w-full accent-[#df482f]" /></div>{[["Meta Ads", 4800, 40], ["TikTok Ads", 1800, 15], ["Influenceurs", 2400, 20], ["Impressions & événements", 3000, 25]].map(([name, value, percent]) => <div key={String(name)}><div className="mb-2 flex justify-between text-sm"><span className="font-bold">{name}</span><span>{pesos.format(Number(value))}</span></div><div className="h-2 rounded-full bg-slate-100"><div className="h-2 rounded-full bg-[#123f91]" style={{ width: `${percent}%` }} /></div></div>)}<button onClick={() => void saveMarketingBudget()} className="w-full rounded-xl bg-[#df482f] px-4 py-3 text-sm font-bold text-white">Enregistrer le budget</button></div></Panel>
             <Panel title="Performance des campagnes" description="Résultats des 30 derniers jours"><div className="grid grid-cols-2 gap-3 p-5">{[["Portée", "84 320"], ["Clics", "3 418"], ["Coût par clic", "$1,93"], ["Conversions", "74"]].map(([label, value]) => <div key={label} className="rounded-xl border border-slate-200 p-4"><p className="text-sm text-slate-500">{label}</p><p className="mt-2 text-2xl font-black text-slate-950">{value}</p></div>)}<div className="col-span-2 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-800"><b>Meilleure campagne :</b> « Aprann panyòl nan lang ou » génère 41 % des commandes.</div></div></Panel>
           </div>}
 
@@ -205,6 +241,6 @@ export default function AdminPage() {
   );
 }
 
-function OrderTable({ orders, onStatus }: { orders: typeof ordersSeed; onStatus: (id: string, status: OrderStatus) => void }) {
+function OrderTable({ orders, onStatus }: { orders: AdminOrder[]; onStatus: (id: string, status: OrderStatus) => void | Promise<void> }) {
   return <div className="overflow-x-auto"><table className="w-full min-w-[820px] text-sm"><thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-5 py-3">Commande</th><th className="px-5 py-3">Client</th><th className="px-5 py-3">Destination</th><th className="px-5 py-3">Date</th><th className="px-5 py-3">Total</th><th className="px-5 py-3">Statut</th></tr></thead><tbody>{orders.map((order) => <tr key={order.id} className="border-t border-slate-100 hover:bg-slate-50/60"><td className="px-5 py-4 font-black text-[#123f91]">{order.id}</td><td className="px-5 py-4 font-bold text-slate-900">{order.client}</td><td className="px-5 py-4 text-slate-500">{order.city}</td><td className="px-5 py-4 text-slate-500">{order.date}</td><td className="px-5 py-4 font-black text-slate-900">{pesos.format(order.total)}</td><td className="px-5 py-4"><div className="flex items-center gap-2"><StatusPill status={order.status} /><select aria-label={`Statut ${order.id}`} value={order.status} onChange={(event) => onStatus(order.id, event.target.value as OrderStatus)} className="w-7 cursor-pointer bg-transparent text-transparent outline-none"><option>Payée</option><option>Préparation</option><option>Expédiée</option><option>Livrée</option></select></div></td></tr>)}</tbody></table>{orders.length === 0 && <div className="p-10 text-center text-sm text-slate-500">Aucune commande trouvée.</div>}</div>;
 }

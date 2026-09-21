@@ -1,10 +1,8 @@
 "use client";
 
 import { createBrowserClient } from "@supabase/ssr";
+import { supabasePublishableKey, supabaseUrl } from "./config";
 
 export function createSupabaseBrowserClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
-  if (!url || !key) throw new Error("Supabase public configuration is missing");
-  return createBrowserClient(url, key);
+  return createBrowserClient(supabaseUrl, supabasePublishableKey);
 }
