@@ -39,13 +39,14 @@ export async function GET() {
     supabase.from("marketing_budgets").select("*").order("month", { ascending: false }).limit(12),
     supabase.from("marketing_campaigns").select("*").order("updated_at", { ascending: false }).limit(100),
     supabase.from("integration_settings").select("*").order("provider"),
+    supabase.from("integration_secret_status").select("provider,secret_key,configured_at").order("provider"),
   ]);
   const failed = results.find((result) => result.error);
   if (failed?.error) return apiError(failed.error.message, 500);
-  const [orders, customers, locations, movements, batches, payments, shipments, budgets, campaigns, integrations] = results;
+  const [orders, customers, locations, movements, batches, payments, shipments, budgets, campaigns, integrations, secretStatuses] = results;
   return NextResponse.json({
     orders: (orders.data ?? []).map((order) => ({ ...order, status_label: orderLabels[order.status] ?? order.status })),
-    customers: customers.data ?? [], locations: locations.data ?? [], movements: movements.data ?? [], batches: batches.data ?? [], payments: payments.data ?? [], shipments: shipments.data ?? [], budgets: budgets.data ?? [], campaigns: campaigns.data ?? [], integrations: integrations.data ?? [],
+    customers: customers.data ?? [], locations: locations.data ?? [], movements: movements.data ?? [], batches: batches.data ?? [], payments: payments.data ?? [], shipments: shipments.data ?? [], budgets: budgets.data ?? [], campaigns: campaigns.data ?? [], integrations: integrations.data ?? [], secretStatuses: secretStatuses.data ?? [],
   });
 }
 
@@ -153,6 +154,18 @@ export async function PATCH(request: Request) {
     const provider = clean(body.provider, 40), environment = clean(body.environment, 20);
     if (!integrationProviders.has(provider) || !["sandbox", "production"].includes(environment)) return apiError("Intégration invalide");
     const { error } = await supabase.from("integration_settings").update({ enabled: Boolean(body.enabled), environment, public_identifier: clean(body.publicIdentifier, 250) || null, webhook_configured: Boolean(body.webhookConfigured), updated_by: userId, updated_at: new Date().toISOString() }).eq("provider", provider);
+    return error ? apiError(error.message) : NextResponse.json({ success: true });
+  }
+  if (action === "integration_secret") {
+    const provider = clean(body.provider, 40), key = clean(body.key, 60), value = typeof body.value === "string" ? body.value.trim() : "";
+    if (!integrationProviders.has(provider) || !key || !value) return apiError("Clé d’intégration invalide");
+    const { error } = await supabase.rpc("admin_set_integration_secret", { p_provider: provider, p_key: key, p_value: value });
+    return error ? apiError(error.message) : NextResponse.json({ success: true });
+  }
+  if (action === "delete_integration_secret") {
+    const provider = clean(body.provider, 40), key = clean(body.key, 60);
+    if (!integrationProviders.has(provider) || !key) return apiError("Clé d’intégration invalide");
+    const { error } = await supabase.rpc("admin_delete_integration_secret", { p_provider: provider, p_key: key });
     return error ? apiError(error.message) : NextResponse.json({ success: true });
   }
   if (action === "customer") {
