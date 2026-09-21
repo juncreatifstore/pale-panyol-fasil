@@ -74,8 +74,8 @@ export default function Home() {
       </header>
 
       <section id="inicio" className="mx-auto grid max-w-7xl gap-10 px-5 py-10 lg:grid-cols-[1.05fr_.95fr] lg:px-8 lg:py-16">
-        <div className="relative overflow-hidden rounded-[2rem] bg-[#123f91] shadow-2xl shadow-blue-950/15">
-          <img src={productImages[activeImage].src} alt={`${productImages[activeImage].label} du livre Pale Panyol Fasil`} className="aspect-[4/3] h-full w-full object-cover" />
+        <div className="relative aspect-[4/3] self-start overflow-hidden rounded-[2rem] bg-[#123f91] shadow-2xl shadow-blue-950/15">
+          <img src={productImages[activeImage].src} alt={`${productImages[activeImage].label} du livre Pale Panyol Fasil`} className="absolute inset-0 h-full w-full object-contain object-center" />
           <button onClick={() => setActiveImage((activeImage + 2) % 3)} aria-label="Photo précédente" className="absolute left-4 top-1/2 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full bg-white/90 shadow"><ChevronLeft /></button>
           <button onClick={() => setActiveImage((activeImage + 1) % 3)} aria-label="Photo suivante" className="absolute right-4 top-1/2 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full bg-white/90 shadow"><ChevronRight /></button>
           <div className="absolute bottom-4 left-4 rounded-full bg-white/90 px-4 py-2 text-sm font-bold">{activeImage + 1} / 3 · {productImages[activeImage].label}</div>
