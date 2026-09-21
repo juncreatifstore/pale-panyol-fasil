@@ -16,11 +16,15 @@ function messageText(message: IncomingMessage) {
 }
 
 function detectLanguage(input: string, previous: string) {
-  const lower = input.toLowerCase();
-  if (/\b(hola|precio|libro|envío|quiero|gracias|cuánto|dónde)\b/.test(lower)) return "es";
-  if (/\b(bonjou|bonswa|liv|pri|mwen|konbyen|mesi|voye)\b/.test(lower)) return "ht";
-  if (/\b(bonjour|prix|livre|merci|livraison)\b/.test(lower)) return "fr";
-  if (/\b(hello|price|book|shipping|thanks)\b/.test(lower)) return "en";
+  const lower = input.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const scores = {
+    ht: (lower.match(/\b(bonjou|bonswa|mwen|ou|nou|yo|liv|pri|achte|vle|konnen|konbyen|kijan|poukisa|livrezon|voye|mesi|tanpri|eske|kreyol|panyol|peye|komande|adres)\b/g) ?? []).length,
+    es: (lower.match(/\b(hola|precio|libro|envio|quiero|gracias|cuanto|donde|comprar|pagar|pedido|direccion|espanol)\b/g) ?? []).length,
+    fr: (lower.match(/\b(bonjour|bonsoir|prix|livre|merci|livraison|acheter|payer|commande|adresse|francais)\b/g) ?? []).length,
+    en: (lower.match(/\b(hello|hi|price|book|shipping|thanks|buy|pay|order|address|english)\b/g) ?? []).length,
+  };
+  const winner = Object.entries(scores).sort((a, b) => b[1] - a[1])[0];
+  if (winner[1] > 0) return winner[0];
   return previous || "ht";
 }
 
