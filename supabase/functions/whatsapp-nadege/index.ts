@@ -137,14 +137,17 @@ async function sendConfiguredMedia(wa: Record<string, string>, to: string, answe
 function quoteRows(payload: unknown, carrier: string) {
   const root = payload as Record<string, unknown>;
   const candidates = [root?.data, root?.rates, root?.data && (root.data as Record<string, unknown>).rates].find(Array.isArray) as Array<Record<string, unknown>> | undefined;
-  return (candidates ?? []).map((row) => ({
-    carrier: String(row.carrier ?? row.carrierDescription ?? carrier),
-    service: String(row.service ?? "standard"),
-    service_description: String(row.serviceDescription ?? row.service ?? "Sèvis estanda"),
-    delivery_estimate: String(row.deliveryEstimate ?? row.estimatedDelivery ?? row.deliveryTime ?? row.transitDays ?? row.days ?? ""),
-    price: Number(row.totalPrice ?? row.total ?? row.price ?? row.cost),
-    currency: String(row.currency ?? "MXN"),
-  })).filter((row) => Number.isFinite(row.price) && row.price >= 0);
+  return (candidates ?? []).map((row) => {
+    const shipment = row.shipment as Record<string, unknown> | undefined;
+    return {
+      carrier: String(row.carrier ?? row.carrierDescription ?? carrier),
+      service: String(row.service ?? "standard"),
+      service_description: String(row.serviceDescription ?? row.service ?? "Sèvis estanda"),
+      delivery_estimate: String(row.deliveryEstimate ?? row.deliveryDate ?? row.estimatedDelivery ?? row.estimatedDeliveryDate ?? row.deliveryTime ?? row.transitDays ?? row.deliveryDays ?? row.days ?? shipment?.deliveryEstimate ?? shipment?.deliveryDate ?? ""),
+      price: Number(row.totalPrice ?? row.total ?? row.price ?? row.cost),
+      currency: String(row.currency ?? "MXN"),
+    };
+  }).filter((row) => Number.isFinite(row.price) && row.price >= 0);
 }
 
 async function validateMexicanPostalCode(postalCode: string) {
@@ -243,8 +246,18 @@ async function processMessage(message: WaMessage, profileName: string | undefine
     && ["shipping_quote", "summary", "payment"].includes(conversation.current_step);
   const typedRateIndex = canRecoverTypedSelection && /^[1-3]$/.test(content.trim()) ? Number(content.trim()) - 1 : null;
   const selectedRateIndex = buttonRateIndex == null ? typedRateIndex : Number(buttonRateIndex);
-  const selectedRate = selectedRateIndex == null ? null : storedRates[selectedRateIndex] ?? null;
+  let selectedRate = selectedRateIndex == null ? null : storedRates[selectedRateIndex] ?? null;
   const savedCustomer = (conversation.customer_data ?? {}) as Record<string, unknown>;
+  let refreshedShippingQuote: Record<string, unknown> | null = null;
+  if (selectedRate && !String(selectedRate.delivery_estimate ?? "").trim()) {
+    const refreshed = await requestEnviaQuote(secrets.shipping ?? {}, settings, savedCustomer);
+    if (Array.isArray(refreshed.rates)) {
+      const refreshedRates = refreshed.rates as Array<Record<string, unknown>>;
+      const exactMatch = refreshedRates.find((rate) => rate.carrier === selectedRate?.carrier && rate.service === selectedRate?.service);
+      selectedRate = exactMatch ?? refreshedRates[selectedRateIndex ?? -1] ?? selectedRate;
+      refreshedShippingQuote = refreshed;
+    }
+  }
   const bookPrice = Number(settings.book_price_mxn);
   const selectedShippingPrice = Number(selectedRate?.price ?? 0);
   const orderTotal = bookPrice + selectedShippingPrice;
@@ -254,7 +267,7 @@ async function processMessage(message: WaMessage, profileName: string | undefine
     ? {
       messages: [
         `📋 *Rezime kòmand ou*\nLiv: Pale Panyol Fasil\nAdrès: ${deliveryAddress || "Adrès kliyan anrejistre a"}`,
-        `📘 Pri liv la: *$${bookPrice.toFixed(2)} MXN*\n📦 Livrezon ${selectedRate.carrier} — ${selectedRate.service_description || selectedRate.service}: *$${selectedShippingPrice.toFixed(2)} ${selectedRate.currency}*${selectedRate.delivery_estimate ? `\n⏱ Delè estime: *${selectedRate.delivery_estimate}*` : ""}`,
+        `📘 Pri liv la: *$${bookPrice.toFixed(2)} MXN*\n📦 Livrezon ${selectedRate.carrier} — ${selectedRate.service_description || selectedRate.service}: *$${selectedShippingPrice.toFixed(2)} ${selectedRate.currency}*\n⏱ Delè estime: *${selectedRate.delivery_estimate || "Envia pa presize l"}*`,
         `💳 *Total pou peye kounye a: $${orderTotal.toFixed(2)} MXN*`,
       ],
       buttons: [], intent: "confirm", next_action: "show_summary", extracted: emptyExtracted,
@@ -282,6 +295,7 @@ async function processMessage(message: WaMessage, profileName: string | undefine
   if (phoneInMessage) extracted.phone = phoneInMessage; else delete extracted.phone;
   const customerData = { ...(conversation.customer_data ?? {}), ...extracted } as Record<string, unknown>;
   if (selectedRate) customerData.selected_shipping_rate = selectedRate;
+  if (refreshedShippingQuote) customerData.shipping_quote = refreshedShippingQuote;
   let shippingResult: Record<string, unknown> | null = null;
   if (answer.next_action === "request_shipping_quote") {
     const kind = placeKind(customerData);
