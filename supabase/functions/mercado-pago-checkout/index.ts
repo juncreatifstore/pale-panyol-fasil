@@ -52,7 +52,7 @@ Deno.serve(async (request) => {
     if (required.some((value) => value == null || value === "")) return json({ error: "Informations de paiement incomplètes" }, 400);
     const paymentResponse = await fetch("https://api.mercadopago.com/v1/payments", {
       method: "POST",
-      headers: { authorization: `Bearer ${mp.access_token}`, "content-type": "application/json", "x-idempotency-key": `ppf-${found.order.id}` },
+      headers: { authorization: `Bearer ${mp.access_token}`, "content-type": "application/json", "x-idempotency-key": `ppf-${found.order.id}-${String(paymentData.token).slice(-16)}` },
       body: JSON.stringify({
         token: paymentData.token, transaction_amount: Number(found.order.total_mxn), installments: Number(paymentData.installments),
         payment_method_id: paymentData.payment_method_id, issuer_id: paymentData.issuer_id || undefined, payer: paymentData.payer,
