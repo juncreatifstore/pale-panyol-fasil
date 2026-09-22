@@ -147,10 +147,39 @@ function quoteRows(payload: unknown, carrier: string) {
 
 async function validateMexicanPostalCode(postalCode: string) {
   const response = await fetch(`https://geocodes.envia.com/zipcode/MX/${encodeURIComponent(postalCode)}`);
-  const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
-  const data = payload.data as Record<string, unknown> | undefined;
-  if (!response.ok || !data?.postalCode || !data?.city || !data?.state) return null;
-  return { postalCode: String(data.postalCode), city: String(data.city), state: String(data.state) };
+  const payload = await response.json().catch(() => null) as unknown;
+  if (!response.ok || !payload) return null;
+
+  // Envia currently returns an array from geocodes.envia.com, while some
+  // environments/documentation still return { data: { ... } }. Accept both.
+  const root = payload as Record<string, unknown>;
+  const nested = root.data;
+  const data = (
+    Array.isArray(payload) ? payload[0]
+      : Array.isArray(nested) ? nested[0]
+        : nested ?? payload
+  ) as Record<string, unknown> | undefined;
+  if (!data) return null;
+
+  const stateData = data.state;
+  const state = typeof stateData === "string"
+    ? stateData
+    : stateData && typeof stateData === "object"
+      ? String(
+        ((stateData as Record<string, unknown>).code as Record<string, unknown> | undefined)?.["2digit"]
+          ?? (stateData as Record<string, unknown>).iso_code
+          ?? (stateData as Record<string, unknown>).name
+          ?? "",
+      ).replace(/^MX-/, "")
+      : "";
+  const regions = data.regions as Record<string, unknown> | undefined;
+  const normalized = {
+    postalCode: String(data.postalCode ?? data.zip_code ?? ""),
+    city: String(data.city ?? data.locality ?? regions?.region_2 ?? ""),
+    state,
+  };
+  if (!normalized.postalCode || !normalized.city || !normalized.state) return null;
+  return normalized;
 }
 
 async function requestEnviaQuote(shipping: Record<string, string>, settings: SalesSettings, customer: Record<string, unknown>) {
@@ -178,7 +207,9 @@ async function requestEnviaQuote(shipping: Record<string, string>, settings: Sal
   };
   const attempts = await Promise.all(carriers.map(async (carrier) => {
     const response = await fetch(`${base}/ship/rate/`, { method: "POST", headers: { authorization: `Bearer ${shipping.api_key}`, "content-type": "application/json" }, body: JSON.stringify({ ...common, shipment: { carrier, type: 1 } }) });
-    const payload = await response.json().catch(() => ({}));
+    const raw = await response.text();
+    let payload: unknown;
+    try { payload = JSON.parse(raw); } catch { payload = { message: raw || `HTTP ${response.status}` }; }
     return response.ok ? { rates: quoteRows(payload, carrier), error: null } : { rates: [], error: { carrier, status: response.status, message: String((payload as Record<string, unknown>).message ?? (payload as Record<string, unknown>).error ?? "Envia rejected request").slice(0, 250) } };
   }));
   const rates = attempts.flatMap((attempt) => attempt.rates).sort((a, b) => a.price - b.price).slice(0, 3);
