@@ -29,19 +29,33 @@ export default function PaymentClient() {
         script.onload = () => resolve(); script.onerror = () => reject(new Error("Mercado Pago pa chaje")); document.head.appendChild(script);
       });
       const mp = new window.MercadoPago(config.public_key, { locale: "es-MX" });
-      controller = await mp.bricks().create("cardPayment", "cardPaymentBrick_container", {
-        initialization: { amount: config.amount },
+      controller = await mp.bricks().create("payment", "paymentBrick_container", {
+        initialization: { amount: config.amount, preferenceId: config.preference_id },
+        customization: {
+          paymentMethods: {
+            creditCard: "all",
+            debitCard: "all",
+            prepaidCard: "all",
+            ticket: "all",
+            bankTransfer: "all",
+            atm: "all",
+            mercadoPago: "all",
+          },
+        },
         callbacks: {
           onReady: () => { setState("ready"); setMessage(""); },
           onError: (error: unknown) => { console.error(error); setState("error"); setMessage("Fòm Mercado Pago a pa chaje. Tanpri rafrechi paj la."); },
-          onSubmit: async (paymentData: Record<string, unknown>) => {
+          onSubmit: async ({ selectedPaymentMethod, formData }: { selectedPaymentMethod: string; formData: Record<string, unknown> }) => {
             setState("loading"); setMessage("N ap verifye peman an…");
-            const pay = await fetch(endpoint, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ order, checkout_token: token, payment_data: paymentData }) });
+            const pay = await fetch(endpoint, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ order, checkout_token: token, selected_payment_method: selectedPaymentMethod, payment_data: formData }) });
             const result = await pay.json();
-            if (!pay.ok) { setState("error"); setMessage(result.error || "Peman an pa pase. Verifye enfòmasyon kat la."); throw new Error(result.error); }
+            if (!pay.ok) { setState("error"); setMessage(result.error || "Peman an pa pase. Verifye enfòmasyon yo."); throw new Error(result.error); }
             if (result.status === "approved") { setState("approved"); setMessage("Peman konfime ✅ N ap voye konfimasyon an sou WhatsApp."); }
-            else if (result.status === "pending") { setState("pending"); setMessage("Mercado Pago ap verifye peman an. N ap avèti w sou WhatsApp."); }
-            else { setState("error"); setMessage("Peman an pa apwouve. Eseye yon lòt kat oswa kontakte nou."); }
+            else if (result.status === "pending") {
+              setState("pending");
+              setMessage("Peman an an atant. Swiv enstriksyon Mercado Pago yo; n ap avèti w sou WhatsApp lè li konfime.");
+              if (result.payment_url) window.location.assign(result.payment_url);
+            } else { setState("error"); setMessage("Peman an pa apwouve. Eseye yon lòt metòd oswa kontakte nou."); }
           },
         },
       });
@@ -53,7 +67,7 @@ export default function PaymentClient() {
     <h1 className="text-2xl font-black">Peman sekirize</h1>
     {summary && <div className="my-5 rounded-2xl bg-blue-50 p-4"><p>Kòmand: <b>{summary.order_number}</b></p><p className="text-xl">Total: <b>${summary.amount.toFixed(2)} MXN</b></p></div>}
     {message && <p className={`my-4 rounded-xl p-3 ${state === "error" ? "bg-red-50 text-red-800" : state === "approved" ? "bg-emerald-50 text-emerald-800" : "bg-amber-50"}`}>{message}</p>}
-    <div id="cardPaymentBrick_container" className={state === "approved" ? "hidden" : ""} />
-    <p className="mt-5 text-sm text-slate-500">🔒 Mercado Pago pwoteje enfòmasyon kat ou. Nou pa janm wè ni konsève nimewo kat oswa CVV ou.</p>
+    <div id="paymentBrick_container" className={state === "approved" ? "hidden" : ""} />
+    <p className="mt-5 text-sm text-slate-500">🔒 Mercado Pago pwoteje peman ou. Ou ka chwazi kat, SPEI, OXXO/lajan kach oswa kont Mercado Pago selon opsyon ki disponib.</p>
   </div></main>;
 }
