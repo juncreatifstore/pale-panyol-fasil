@@ -139,7 +139,9 @@ function quoteRows(payload: unknown, carrier: string) {
   const candidates = [root?.data, root?.rates, root?.data && (root.data as Record<string, unknown>).rates].find(Array.isArray) as Array<Record<string, unknown>> | undefined;
   return (candidates ?? []).map((row) => ({
     carrier: String(row.carrier ?? row.carrierDescription ?? carrier),
-    service: String(row.service ?? row.serviceDescription ?? row.deliveryEstimate ?? "Sèvis estanda"),
+    service: String(row.service ?? "standard"),
+    service_description: String(row.serviceDescription ?? row.service ?? "Sèvis estanda"),
+    delivery_estimate: String(row.deliveryEstimate ?? row.estimatedDelivery ?? row.deliveryTime ?? row.transitDays ?? row.days ?? ""),
     price: Number(row.totalPrice ?? row.total ?? row.price ?? row.cost),
     currency: String(row.currency ?? "MXN"),
   })).filter((row) => Number.isFinite(row.price) && row.price >= 0);
@@ -233,7 +235,21 @@ async function processMessage(message: WaMessage, profileName: string | undefine
   const catalog = { books: [{ id: "pale-panyol-fasil", title: "Pale Panyol Fasil: Español Fácil para Haitianos", author: "Dieudonné Almonord", language: "Panyòl esplike an kreyòl ayisyen", format: "Kouvèti soup", pages: settings.book_pages, chapters: settings.book_chapters, dimensions_cm: `${settings.package_width_cm} × ${settings.package_height_cm} × ${settings.package_length_cm}`, price_mxn: settings.book_price_mxn, stock: (stock ?? []).reduce((sum, row) => sum + Number(row.quantity_on_hand), 0), photos: settings.photo_urls, summary_pdf_available: Boolean(settings.summary_pdf_url), benefits: settings.book_benefits, real_customer_experiences: settings.testimonials }] };
   const delivery = { tapachula: settings.tapachula_delivery, cdmx_metro: settings.cdmx_delivery, other_mexico: settings.other_zones_delivery, after_sales: settings.after_sales_service };
   const system = prompt({ language: lang, step: conversation.current_step, customer_data: conversation.customer_data ?? {}, first_name: conversation.customer_first_name, support_email: "contact@juncreatif.store", catalog, delivery, order: null, payment_status: "none", tracking: null, history: (history ?? []).reverse() });
-  let answer = isGreeting(content) ? welcomeAnswer(lang) : await ask(secrets.openai, system, content);
+  const storedQuote = (conversation.customer_data as Record<string, unknown> | null)?.shipping_quote as Record<string, unknown> | undefined;
+  const storedRates = Array.isArray(storedQuote?.rates) ? storedQuote.rates as Array<Record<string, unknown>> : [];
+  const selectedRateIndex = content.match(/^shipping_rate_(\d+)$/)?.[1];
+  const selectedRate = selectedRateIndex == null ? null : storedRates[Number(selectedRateIndex)] ?? null;
+  const emptyExtracted = { full_name: null, phone: null, postal_code: null, street: null, colony: null, city: null, state: null, delivery_zone: null, metro_station: null, references: null };
+  let answer: NadegeAnswer = selectedRate
+    ? {
+      messages: [
+        `Ou chwazi *${selectedRate.carrier} — ${selectedRate.service_description || selectedRate.service}* pou *$${Number(selectedRate.price).toFixed(2)} ${selectedRate.currency}*.`,
+        selectedRate.delivery_estimate ? `Delè livrezon estime a se *${selectedRate.delivery_estimate}*.` : "Envia pa bay yon delè egzak pou sèvis sa a.",
+        "Mwen anrejistre chwa sa a. Kounye a n ap verifye rezime kòmand lan anvan peman an.",
+      ],
+      buttons: [], intent: "confirm", next_action: "show_summary", extracted: emptyExtracted,
+    }
+    : isGreeting(content) ? welcomeAnswer(lang) : await ask(secrets.openai, system, content);
   if (content === "buy_now_no") answer = { ...answer, messages: ["Pa gen pwoblèm 😊 Lè ou pare, ekri nou ankò."], buttons: [], next_action: "none" };
   if (content === "buy_now_yes") answer = { ...answer, messages: ["Trè byen 👌", "Èske ou vle wè plis detay sou liv la anvan?"], buttons: [{ id: "details_yes", title: "Wi, montre m" }, { id: "details_no", title: "Non, kontinye" }], next_action: "none" };
   if (content === "details_yes") {
@@ -255,6 +271,7 @@ async function processMessage(message: WaMessage, profileName: string | undefine
   if (postalInMessage) extracted.postal_code = postalInMessage; else delete extracted.postal_code;
   if (phoneInMessage) extracted.phone = phoneInMessage; else delete extracted.phone;
   const customerData = { ...(conversation.customer_data ?? {}), ...extracted } as Record<string, unknown>;
+  if (selectedRate) customerData.selected_shipping_rate = selectedRate;
   let shippingResult: Record<string, unknown> | null = null;
   if (answer.next_action === "request_shipping_quote") {
     const kind = placeKind(customerData);
@@ -272,8 +289,25 @@ async function processMessage(message: WaMessage, profileName: string | undefine
   await sendConfiguredMedia(secrets.whatsapp, message.from, answer, settings);
   if (shippingResult?.free) await send(secrets.whatsapp, { to: message.from, type: "text", text: { preview_url: false, body: String(shippingResult.text || "Livrezon sa a gratis.") } });
   else if (Array.isArray(shippingResult?.rates)) {
-    const rateText = (shippingResult.rates as Array<Record<string, unknown>>).map((rate, index) => `${index + 1}. ${rate.carrier} · ${rate.service}: *$${Number(rate.price).toFixed(2)} ${rate.currency}*`).join("\n");
-    await send(secrets.whatsapp, { to: message.from, type: "text", text: { preview_url: false, body: `Men tarif Envia yo jwenn pou adrès la:\n${rateText}` } });
+    const rates = shippingResult.rates as Array<Record<string, unknown>>;
+    const rateText = rates.map((rate, index) => {
+      const estimate = String(rate.delivery_estimate || "").trim();
+      return `${index + 1}. *${rate.carrier} — ${rate.service_description || rate.service}*\n💰 *$${Number(rate.price).toFixed(2)} ${rate.currency}*\n⏱ ${estimate ? `Delè estime: *${estimate}*` : "Delè: Envia pa presize l"}`;
+    }).join("\n\n");
+    await send(secrets.whatsapp, {
+      to: message.from,
+      type: "interactive",
+      interactive: {
+        type: "button",
+        body: { text: `Men opsyon livrezon Envia yo:\n\n${rateText}\n\nChwazi opsyon ou prefere a:` },
+        action: {
+          buttons: rates.slice(0, 3).map((rate, index) => ({
+            type: "reply",
+            reply: { id: `shipping_rate_${index}`, title: `${index + 1}. ${String(rate.carrier)} $${Math.round(Number(rate.price))}`.slice(0, 20) },
+          })),
+        },
+      },
+    });
   } else if (shippingResult?.error && !["address", "invalid_postal_code"].includes(String(shippingResult.error))) await send(secrets.whatsapp, { to: message.from, type: "text", text: { preview_url: false, body: "Envia pa jwenn yon tarif pou adrès sa a kounye a. Verifye kòd postal la oswa kontakte contact@juncreatif.store." } });
   const nextStep: Record<string, string> = { show_catalog: "choose_book", send_photos: "book_details", send_sample: "sample", show_price: "price", ask_zone: "delivery_zone", ask_field: "address", request_shipping_quote: "shipping_quote", show_summary: "summary", create_payment_link: "payment", send_tracking: "tracking" };
   let currentStep = nextStep[answer.next_action] || conversation.current_step;
