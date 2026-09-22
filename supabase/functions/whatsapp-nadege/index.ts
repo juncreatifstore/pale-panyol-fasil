@@ -268,11 +268,19 @@ async function processMessage(message: WaMessage, profileName: string | undefine
       messages: [
         `📋 *Rezime kòmand ou*\nLiv: Pale Panyol Fasil\nAdrès: ${deliveryAddress || "Adrès kliyan anrejistre a"}`,
         `📘 Pri liv la: *$${bookPrice.toFixed(2)} MXN*\n📦 Livrezon ${selectedRate.carrier} — ${selectedRate.service_description || selectedRate.service}: *$${selectedShippingPrice.toFixed(2)} ${selectedRate.currency}*\n⏱ Delè estime: *${selectedRate.delivery_estimate || "Envia pa presize l"}*`,
-        `💳 *Total pou peye kounye a: $${orderTotal.toFixed(2)} MXN*`,
+        `💳 *Total pou peye kounye a: $${orderTotal.toFixed(2)} MXN*\n\nPou kontinye ak kòmand lan, peze *Kontinye ak peman*. Si ou vle yon lòt sèvis, peze *Chanje livrezon*.`,
       ],
-      buttons: [], intent: "confirm", next_action: "show_summary", extracted: emptyExtracted,
+      buttons: [{ id: "continue_payment", title: "Kontinye ak peman" }, { id: "change_shipping", title: "Chanje livrezon" }], intent: "confirm", next_action: "show_summary", extracted: emptyExtracted,
     }
     : isGreeting(content) ? welcomeAnswer(lang) : await ask(secrets.openai, system, content);
+  if (content === "continue_payment") answer = {
+    messages: ["Mèsi, mwen anrejistre konfimasyon ou ✅", "Pwochen etap la se kreye lyen peman Mercado Pago a. Mwen pap konfime okenn peman toutotan sistèm nan poko resevwa konfimasyon Mercado Pago."],
+    buttons: [], intent: "confirm", next_action: "create_payment_link", extracted: emptyExtracted,
+  };
+  if (content === "change_shipping") answer = {
+    messages: ["Dakò. Voye nimewo *1, 2 oswa 3* pou chwazi yon lòt opsyon livrezon."],
+    buttons: [], intent: "confirm", next_action: "request_shipping_quote", extracted: emptyExtracted,
+  };
   if (content === "buy_now_no") answer = { ...answer, messages: ["Pa gen pwoblèm 😊 Lè ou pare, ekri nou ankò."], buttons: [], next_action: "none" };
   if (content === "buy_now_yes") answer = { ...answer, messages: ["Trè byen 👌", "Èske ou vle wè plis detay sou liv la anvan?"], buttons: [{ id: "details_yes", title: "Wi, montre m" }, { id: "details_no", title: "Non, kontinye" }], next_action: "none" };
   if (content === "details_yes") {
