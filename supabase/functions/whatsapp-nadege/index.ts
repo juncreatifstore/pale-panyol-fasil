@@ -425,7 +425,11 @@ async function processMessage(message: WaMessage, profileName: string | undefine
   if (content === "buy_now_yes") currentStep = "offer_details";
   if (content === "buy_now_no") currentStep = "stopped";
   if (paymentPreference?.init_point) customerData.mercado_pago = { checkout_token: paymentPreference.checkout_token, checkout_url: paymentPreference.init_point, order_number: paymentPreference.order_number, total_mxn: paymentPreference.total };
-  await supabase.from("whatsapp_conversations").update({ language: lang, current_step: currentStep, customer_first_name: answer.extracted.full_name?.split(/\s+/)[0] || conversation.customer_first_name, customer_data: { ...customerData, ...(shippingResult ? { shipping_quote: shippingResult } : {}) }, order_id: paymentPreference?.order_id || conversation.order_id, last_message_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", conversation.id);
+  const reminderOptOut = content === "buy_now_no" || /^(stop|sispann|pa ekri m|non mesi|non mèsi|no gracias)$/i.test(content.trim());
+  const reminderFields = reminderOptOut
+    ? { reminder_stage: 0, next_reminder_at: null, reminder_stopped_at: new Date().toISOString() }
+    : { reminder_stage: 0, next_reminder_at: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(), reminder_stopped_at: null };
+  await supabase.from("whatsapp_conversations").update({ language: lang, current_step: currentStep, customer_first_name: answer.extracted.full_name?.split(/\s+/)[0] || conversation.customer_first_name, customer_data: { ...customerData, ...(shippingResult ? { shipping_quote: shippingResult } : {}) }, order_id: paymentPreference?.order_id || conversation.order_id, last_message_at: new Date().toISOString(), updated_at: new Date().toISOString(), ...reminderFields }).eq("id", conversation.id);
   await supabase.from("whatsapp_messages").insert(answer.messages.map((value: string) => ({ conversation_id: conversation.id, direction: "outbound", message_type: answer.buttons.length ? "interactive" : "text", content: value, ai_intent: answer.intent, ai_next_action: answer.next_action, payload: { buttons: answer.buttons } })));
 }
 
