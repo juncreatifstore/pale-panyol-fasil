@@ -134,6 +134,17 @@ async function sendConfiguredMedia(wa: Record<string, string>, to: string, answe
   }
 }
 
+async function sendPaymentGuide(wa: Record<string, string>, to: string) {
+  const base = "https://pale-panyol-fasil.vercel.app/api/payment-guide";
+  const guides = [
+    { method: "wallet", caption: "🤝 *Kont Mercado Pago*\nKonekte sou kont ou epi chwazi lajan oswa mwayen peman ki deja anrejistre ladan l." },
+    { method: "credit", caption: "💳 *Kat kredi*\nAntre enfòmasyon kat la sou paj sekirize Mercado Pago a epi chwazi vèsman ki disponib." },
+    { method: "debit", caption: "💳 *Kat debi*\nAntre enfòmasyon kat debi a epi peze *Pagar*. Ou pa bezwen yon kont Mercado Pago." },
+    { method: "cash", caption: "💵 *Peman kach — opsyon anpil kliyan prefere*\n1. Chwazi *Efectivo*.\n2. Ranpli non, siyati ak imèl ou.\n3. Chwazi OXXO, 7-Eleven, Santander oswa yon lòt kote ki parèt.\n4. Peze *Pagar* pou jwenn fich/kòd la.\n5. Ale nan kote a, montre kòd la epi peye kach.\n\nKonsève resi a. N ap konfime kòmand lan otomatikman apre Mercado Pago valide peman an." },
+  ];
+  for (const guide of guides) await send(wa, { to, type: "image", image: { link: `${base}/${guide.method}`, caption: guide.caption } });
+}
+
 function quoteRows(payload: unknown, carrier: string) {
   const root = payload as Record<string, unknown>;
   const candidates = [root?.data, root?.rates, root?.data && (root.data as Record<string, unknown>).rates].find(Array.isArray) as Array<Record<string, unknown>> | undefined;
@@ -335,7 +346,7 @@ async function processMessage(message: WaMessage, profileName: string | undefine
       if (paymentPreference.error === "configuration") answer = { messages: ["Peman Mercado Pago a poko aktive. Tanpri kontakte contact@juncreatif.store pou nou ede w finalize kòmand lan."], buttons: [], intent: "complaint", next_action: "none", extracted: emptyExtracted };
       else if (paymentPreference.error === "shipping") answer = { messages: ["Tanpri chwazi yon opsyon livrezon anvan ou kontinye ak peman an."], buttons: [{ id: "change_shipping", title: "Chwazi livrezon" }], intent: "confirm", next_action: "none", extracted: emptyExtracted };
       else answer = {
-        messages: [`✅ Kòmand *${paymentPreference.order_number}* anrejistre. Total la se *$${Number(paymentPreference.total).toFixed(2)} MXN*.`, `💳 Peye ak kat san ou pa bezwen yon kont Mercado Pago:\n${paymentPreference.init_point}\n\nApre peman an, sistèm nan ap verifye l otomatikman. Pa voye nimewo kat ou nan WhatsApp.`],
+        messages: [`✅ Kòmand *${paymentPreference.order_number}* anrejistre. Total la se *$${Number(paymentPreference.total).toFixed(2)} MXN*.`, `💰 Chwazi fason ou vle peye: kat, SPEI, Mercado Pago oswa *lajan kach*:\n${paymentPreference.init_point}\n\nMen eksplikasyon chak opsyon anba a. Pa voye enfòmasyon kat ou nan WhatsApp.`],
         buttons: [], intent: "confirm", next_action: "create_payment_link", extracted: emptyExtracted,
       };
     } catch (error) {
@@ -385,6 +396,7 @@ async function processMessage(message: WaMessage, profileName: string | undefine
   if (shippingResult?.error === "invalid_postal_code") answer = { ...answer, messages: ["Kòd postal sa a pa valab pou adrès la. Tanpri voye yon kòd postal Meksik ki gen 5 chif."], buttons: [], next_action: "ask_field" };
   await sendAnswer(secrets.whatsapp, message.from, answer);
   await sendConfiguredMedia(secrets.whatsapp, message.from, answer, settings);
+  if (paymentPreference?.init_point) await sendPaymentGuide(secrets.whatsapp, message.from);
   if (shippingResult?.free) await send(secrets.whatsapp, { to: message.from, type: "text", text: { preview_url: false, body: String(shippingResult.text || "Livrezon sa a gratis.") } });
   else if (Array.isArray(shippingResult?.rates)) {
     const rates = shippingResult.rates as Array<Record<string, unknown>>;
