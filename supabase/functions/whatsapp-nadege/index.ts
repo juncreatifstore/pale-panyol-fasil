@@ -267,7 +267,6 @@ async function createPaymentPreference(
     quantity: 1,
     unit_price_mxn: bookPrice,
     shipping_price_mxn: shippingPrice,
-    total_mxn: total,
     payment_provider: "mercado_pago",
     notes: `WhatsApp ${conversation.wa_phone}; ${String(rate.carrier || "")} ${String(rate.service || "")}`.trim(),
   }).select("id").single();
