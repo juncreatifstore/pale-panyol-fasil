@@ -222,6 +222,85 @@ async function requestEnviaQuote(shipping: Record<string, string>, settings: Sal
   return rates.length ? { rates, validated_destination: destinationGeo } : { error: "no_rates", missing: [], provider_errors: errors };
 }
 
+async function createPaymentPreference(
+  mercadoPago: Record<string, string>,
+  conversation: Record<string, any>,
+  settings: SalesSettings,
+  customer: Record<string, unknown>,
+) {
+  if (!mercadoPago?.access_token) return { error: "configuration" } as const;
+  const rate = customer.selected_shipping_rate as Record<string, unknown> | undefined;
+  if (!rate) return { error: "shipping" } as const;
+  const bookPrice = Number(settings.book_price_mxn);
+  const shippingPrice = Number(rate.price);
+  const total = bookPrice + shippingPrice;
+  if (![bookPrice, shippingPrice, total].every((value) => Number.isFinite(value) && value >= 0)) return { error: "amount" } as const;
+
+  const previous = customer.mercado_pago as Record<string, unknown> | undefined;
+  if (conversation.order_id && previous?.init_point && Number(previous.total_mxn) === total) {
+    return { order_id: conversation.order_id, order_number: previous.order_number, preference_id: previous.preference_id, init_point: previous.init_point, total };
+  }
+
+  const fullName = String(customer.full_name || conversation.customer_first_name || "Cliente WhatsApp").trim();
+  let { data: dbCustomer } = await supabase.from("customers").select("id").eq("whatsapp_phone", conversation.wa_phone).maybeSingle();
+  if (!dbCustomer) {
+    const inserted = await supabase.from("customers").insert({
+      full_name: fullName,
+      phone: String(customer.phone || conversation.wa_phone),
+      whatsapp_phone: conversation.wa_phone,
+      street_address: [customer.street, customer.colony].filter(Boolean).join(", ") || null,
+      city: customer.city || null,
+      state: customer.state || null,
+      postal_code: customer.postal_code || null,
+      country: "MX",
+    }).select("id").single();
+    if (inserted.error) throw inserted.error;
+    dbCustomer = inserted.data;
+  }
+
+  const orderNumber = `PPF-${crypto.randomUUID().replaceAll("-", "").slice(0, 12).toUpperCase()}`;
+  const orderInsert = await supabase.from("orders").insert({
+    order_number: orderNumber,
+    customer_id: dbCustomer.id,
+    status: "payment_pending",
+    fulfillment_type: "shipping",
+    quantity: 1,
+    unit_price_mxn: bookPrice,
+    shipping_price_mxn: shippingPrice,
+    total_mxn: total,
+    payment_provider: "mercado_pago",
+    notes: `WhatsApp ${conversation.wa_phone}; ${String(rate.carrier || "")} ${String(rate.service || "")}`.trim(),
+  }).select("id").single();
+  if (orderInsert.error) throw orderInsert.error;
+
+  const notificationUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/mercado-pago-webhook`;
+  const preferenceResponse = await fetch("https://api.mercadopago.com/checkout/preferences", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${mercadoPago.access_token}`,
+      "content-type": "application/json",
+      "x-idempotency-key": crypto.randomUUID(),
+    },
+    body: JSON.stringify({
+      items: [
+        { id: "pale-panyol-fasil", title: "Pale Panyol Fasil", description: "Liv Pale Panyol Fasil", category_id: "books", currency_id: "MXN", quantity: 1, unit_price: bookPrice },
+        { id: "shipping", title: `Livrezon ${String(rate.carrier || "Envia")}`, description: String(rate.service_description || rate.service || "Livrezon"), category_id: "others", currency_id: "MXN", quantity: 1, unit_price: shippingPrice },
+      ],
+      payer: { name: fullName, phone: { number: String(customer.phone || conversation.wa_phone) }, address: { zip_code: String(customer.postal_code || ""), street_name: String(customer.street || "") } },
+      external_reference: orderInsert.data.id,
+      notification_url: notificationUrl,
+      statement_descriptor: "PALE PANYOL FASIL",
+    }),
+  });
+  const preference = await preferenceResponse.json().catch(() => null) as Record<string, unknown> | null;
+  if (!preferenceResponse.ok || !preference?.id || !preference?.init_point) {
+    await supabase.from("orders").update({ status: "cancelled", notes: `Mercado Pago preference error HTTP ${preferenceResponse.status}` }).eq("id", orderInsert.data.id);
+    throw new Error(`Mercado Pago ${preferenceResponse.status}: ${String(preference?.message || "preference creation failed")}`);
+  }
+  await supabase.from("orders").update({ payment_reference: String(preference.id) }).eq("id", orderInsert.data.id);
+  return { order_id: orderInsert.data.id, order_number: orderNumber, preference_id: String(preference.id), init_point: String(preference.init_point), total };
+}
+
 async function processMessage(message: WaMessage, profileName: string | undefined, secrets: Secrets) {
   const content = textOf(message); if (!content) return;
   const { data: duplicate } = await supabase.from("whatsapp_messages").select("id").eq("whatsapp_message_id", message.id).maybeSingle(); if (duplicate) return;
@@ -273,10 +352,21 @@ async function processMessage(message: WaMessage, profileName: string | undefine
       buttons: [{ id: "continue_payment", title: "Kontinye ak peman" }, { id: "change_shipping", title: "Chanje livrezon" }], intent: "confirm", next_action: "show_summary", extracted: emptyExtracted,
     }
     : isGreeting(content) ? welcomeAnswer(lang) : await ask(secrets.openai, system, content);
-  if (content === "continue_payment") answer = {
-    messages: ["Mèsi, mwen anrejistre konfimasyon ou ✅", "Pwochen etap la se kreye lyen peman Mercado Pago a. Mwen pap konfime okenn peman toutotan sistèm nan poko resevwa konfimasyon Mercado Pago."],
-    buttons: [], intent: "confirm", next_action: "create_payment_link", extracted: emptyExtracted,
-  };
+  let paymentPreference: Record<string, unknown> | null = null;
+  if (content === "continue_payment") {
+    try {
+      paymentPreference = await createPaymentPreference(secrets.mercado_pago ?? {}, conversation, settings, savedCustomer);
+      if (paymentPreference.error === "configuration") answer = { messages: ["Peman Mercado Pago a poko aktive. Tanpri kontakte contact@juncreatif.store pou nou ede w finalize kòmand lan."], buttons: [], intent: "complaint", next_action: "none", extracted: emptyExtracted };
+      else if (paymentPreference.error === "shipping") answer = { messages: ["Tanpri chwazi yon opsyon livrezon anvan ou kontinye ak peman an."], buttons: [{ id: "change_shipping", title: "Chwazi livrezon" }], intent: "confirm", next_action: "none", extracted: emptyExtracted };
+      else answer = {
+        messages: [`✅ Kòmand *${paymentPreference.order_number}* anrejistre. Total la se *$${Number(paymentPreference.total).toFixed(2)} MXN*.`, `💳 Peze lyen sekirize Mercado Pago sa a pou peye:\n${paymentPreference.init_point}\n\nApre peman an, sistèm nan ap verifye l otomatikman. Pa voye nimewo kat ou nan WhatsApp.`],
+        buttons: [], intent: "confirm", next_action: "create_payment_link", extracted: emptyExtracted,
+      };
+    } catch (error) {
+      console.error("Mercado Pago preference error", error);
+      answer = { messages: ["Nou pa rive kreye lyen Mercado Pago a kounye a. Pa fè okenn lòt peman; tanpri eseye ankò oswa kontakte contact@juncreatif.store."], buttons: [], intent: "complaint", next_action: "none", extracted: emptyExtracted };
+    }
+  }
   if (content === "change_shipping") answer = {
     messages: ["Dakò. Voye nimewo *1, 2 oswa 3* pou chwazi yon lòt opsyon livrezon."],
     buttons: [], intent: "confirm", next_action: "request_shipping_quote", extracted: emptyExtracted,
@@ -346,7 +436,8 @@ async function processMessage(message: WaMessage, profileName: string | undefine
   if (isGreeting(content)) currentStep = "welcome";
   if (content === "buy_now_yes") currentStep = "offer_details";
   if (content === "buy_now_no") currentStep = "stopped";
-  await supabase.from("whatsapp_conversations").update({ language: lang, current_step: currentStep, customer_first_name: answer.extracted.full_name?.split(/\s+/)[0] || conversation.customer_first_name, customer_data: { ...customerData, ...(shippingResult ? { shipping_quote: shippingResult } : {}) }, last_message_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", conversation.id);
+  if (paymentPreference?.init_point) customerData.mercado_pago = { preference_id: paymentPreference.preference_id, init_point: paymentPreference.init_point, order_number: paymentPreference.order_number, total_mxn: paymentPreference.total };
+  await supabase.from("whatsapp_conversations").update({ language: lang, current_step: currentStep, customer_first_name: answer.extracted.full_name?.split(/\s+/)[0] || conversation.customer_first_name, customer_data: { ...customerData, ...(shippingResult ? { shipping_quote: shippingResult } : {}) }, order_id: paymentPreference?.order_id || conversation.order_id, last_message_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", conversation.id);
   await supabase.from("whatsapp_messages").insert(answer.messages.map((value: string) => ({ conversation_id: conversation.id, direction: "outbound", message_type: answer.buttons.length ? "interactive" : "text", content: value, ai_intent: answer.intent, ai_next_action: answer.next_action, payload: { buttons: answer.buttons } })));
 }
 
