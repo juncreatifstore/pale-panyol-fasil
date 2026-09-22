@@ -239,13 +239,18 @@ async function processMessage(message: WaMessage, profileName: string | undefine
   const storedRates = Array.isArray(storedQuote?.rates) ? storedQuote.rates as Array<Record<string, unknown>> : [];
   const selectedRateIndex = content.match(/^shipping_rate_(\d+)$/)?.[1];
   const selectedRate = selectedRateIndex == null ? null : storedRates[Number(selectedRateIndex)] ?? null;
+  const savedCustomer = (conversation.customer_data ?? {}) as Record<string, unknown>;
+  const bookPrice = Number(settings.book_price_mxn);
+  const selectedShippingPrice = Number(selectedRate?.price ?? 0);
+  const orderTotal = bookPrice + selectedShippingPrice;
+  const deliveryAddress = [savedCustomer.street, savedCustomer.colony, savedCustomer.city, savedCustomer.state, savedCustomer.postal_code].filter(Boolean).join(", ");
   const emptyExtracted = { full_name: null, phone: null, postal_code: null, street: null, colony: null, city: null, state: null, delivery_zone: null, metro_station: null, references: null };
   let answer: NadegeAnswer = selectedRate
     ? {
       messages: [
-        `Ou chwazi *${selectedRate.carrier} — ${selectedRate.service_description || selectedRate.service}* pou *$${Number(selectedRate.price).toFixed(2)} ${selectedRate.currency}*.`,
-        selectedRate.delivery_estimate ? `Delè livrezon estime a se *${selectedRate.delivery_estimate}*.` : "Envia pa bay yon delè egzak pou sèvis sa a.",
-        "Mwen anrejistre chwa sa a. Kounye a n ap verifye rezime kòmand lan anvan peman an.",
+        `📋 *Rezime kòmand ou*\nLiv: Pale Panyol Fasil\nAdrès: ${deliveryAddress || "Adrès kliyan anrejistre a"}`,
+        `📘 Pri liv la: *$${bookPrice.toFixed(2)} MXN*\n📦 Livrezon ${selectedRate.carrier} — ${selectedRate.service_description || selectedRate.service}: *$${selectedShippingPrice.toFixed(2)} ${selectedRate.currency}*${selectedRate.delivery_estimate ? `\n⏱ Delè estime: *${selectedRate.delivery_estimate}*` : ""}`,
+        `💳 *Total pou peye kounye a: $${orderTotal.toFixed(2)} MXN*`,
       ],
       buttons: [], intent: "confirm", next_action: "show_summary", extracted: emptyExtracted,
     }
