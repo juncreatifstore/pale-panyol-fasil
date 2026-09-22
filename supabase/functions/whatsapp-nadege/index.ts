@@ -25,6 +25,9 @@ function textOf(message: WaMessage) {
 
 function language(input: string, previous = "ht") {
   const value = input.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  // Many Haitian customers use “hello” as a neutral greeting. A greeting alone
+  // must not erase an already established Creole conversation.
+  if (["hello", "hi", "hey"].includes(value.trim()) && previous === "ht") return "ht";
   const scores = {
     ht: (value.match(/\b(bonjou|bonswa|mwen|ou|nou|yo|liv|pri|achte|vle|konnen|konbyen|kijan|poukisa|livrezon|voye|mesi|tanpri|eske|kreyol|panyol|peye|komande|adrès|adres)\b/g) ?? []).length,
     es: (value.match(/\b(hola|precio|libro|envio|quiero|gracias|cuanto|donde|comprar|pagar|pedido|direccion|espanol)\b/g) ?? []).length,
@@ -34,6 +37,18 @@ function language(input: string, previous = "ht") {
   const winner = Object.entries(scores).sort((a, b) => b[1] - a[1])[0];
   if (winner[1] > 0) return winner[0];
   return previous;
+}
+
+function isGreeting(input: string) {
+  return ["bonjou", "bonswa", "alo", "hola", "hello", "hi", "hey", "bonjour", "bonsoir"].includes(input.toLowerCase().trim());
+}
+
+function welcomeAnswer(lang: string): NadegeAnswer {
+  const extracted = { full_name: null, phone: null, postal_code: null, street: null, colony: null, city: null, state: null, delivery_zone: null, metro_station: null, references: null };
+  if (lang === "es") return { messages: ["¡Hola! Soy Nadège, la asistente virtual de ventas de Pale Panyol Fasil 😊", "¿Quieres comprar el libro ahora?"], buttons: [{ id: "buy_now_yes", title: "Sí, comprar ahora" }, { id: "buy_now_no", title: "Ahora no" }], intent: "choose_book", next_action: "none", extracted };
+  if (lang === "fr") return { messages: ["Bonjour ! Je suis Nadège, l’assistante virtuelle de vente de Pale Panyol Fasil 😊", "Souhaites-tu acheter le livre maintenant ?"], buttons: [{ id: "buy_now_yes", title: "Oui, acheter" }, { id: "buy_now_no", title: "Pas maintenant" }], intent: "choose_book", next_action: "none", extracted };
+  if (lang === "en") return { messages: ["Hello! I’m Nadège, Pale Panyol Fasil’s virtual sales assistant 😊", "Would you like to buy the book now?"], buttons: [{ id: "buy_now_yes", title: "Yes, buy now" }, { id: "buy_now_no", title: "Not now" }], intent: "choose_book", next_action: "none", extracted };
+  return { messages: ["Bonjou! Mwen se Nadège, asistan vant vityèl Pale Panyol Fasil la 😊", "Èske ou vle achte liv la kounye a?"], buttons: [{ id: "buy_now_yes", title: "Wi, mwen vle achte" }, { id: "buy_now_no", title: "Non, pa kounye a" }], intent: "choose_book", next_action: "none", extracted };
 }
 
 const schema = { type: "object", properties: {
@@ -171,12 +186,7 @@ async function processMessage(message: WaMessage, profileName: string | undefine
   const catalog = { books: [{ id: "pale-panyol-fasil", title: "Pale Panyol Fasil: Español Fácil para Haitianos", author: "Dieudonné Almonord", language: "Panyòl esplike an kreyòl ayisyen", format: "Kouvèti soup", pages: settings.book_pages, chapters: settings.book_chapters, dimensions_cm: `${settings.package_width_cm} × ${settings.package_height_cm} × ${settings.package_length_cm}`, price_mxn: settings.book_price_mxn, stock: (stock ?? []).reduce((sum, row) => sum + Number(row.quantity_on_hand), 0), photos: settings.photo_urls, summary_pdf_available: Boolean(settings.summary_pdf_url), benefits: settings.book_benefits, real_customer_experiences: settings.testimonials }] };
   const delivery = { tapachula: settings.tapachula_delivery, cdmx_metro: settings.cdmx_delivery, other_mexico: settings.other_zones_delivery, after_sales: settings.after_sales_service };
   const system = prompt({ language: lang, step: conversation.current_step, customer_data: conversation.customer_data ?? {}, first_name: conversation.customer_first_name, support_email: "contact@juncreatif.store", catalog, delivery, order: null, payment_status: "none", tracking: null, history: (history ?? []).reverse() });
-  let answer = await ask(secrets.openai, system, content);
-  if (conversation.current_step === "welcome" && ["bonjou", "bonswa", "alo", "hola", "hello", "hi"].includes(content.toLowerCase().trim())) {
-    answer = lang === "ht"
-      ? { messages: ["Bonjou! Mwen se Nadège, asistan vant vityèl Pale Panyol Fasil la 😊", "Èske ou vle achte liv la kounye a?"], buttons: [{ id: "buy_now_yes", title: "Wi, mwen vle achte" }, { id: "buy_now_no", title: "Non, pa kounye a" }], intent: "choose_book", next_action: "none", extracted: { full_name: null, phone: null, postal_code: null, street: null, colony: null, city: null, state: null, delivery_zone: null, metro_station: null, references: null } }
-      : answer;
-  }
+  let answer = isGreeting(content) ? welcomeAnswer(lang) : await ask(secrets.openai, system, content);
   if (content === "buy_now_no") answer = { ...answer, messages: ["Pa gen pwoblèm 😊 Lè ou pare, ekri nou ankò."], buttons: [], next_action: "none" };
   if (content === "buy_now_yes") answer = { ...answer, messages: ["Trè byen 👌", "Èske ou vle wè plis detay sou liv la anvan?"], buttons: [{ id: "details_yes", title: "Wi, montre m" }, { id: "details_no", title: "Non, kontinye" }], next_action: "none" };
   if (content === "details_yes") {
@@ -210,6 +220,7 @@ async function processMessage(message: WaMessage, profileName: string | undefine
   else if (shippingResult?.error) await send(secrets.whatsapp, { to: message.from, type: "text", text: { preview_url: false, body: "Mwen pa ka kalkile tarif Envia a kounye a. Tanpri kontakte contact@juncreatif.store." } });
   const nextStep: Record<string, string> = { show_catalog: "choose_book", send_photos: "book_details", send_sample: "sample", show_price: "price", ask_zone: "delivery_zone", ask_field: "address", request_shipping_quote: "shipping_quote", show_summary: "summary", create_payment_link: "payment", send_tracking: "tracking" };
   let currentStep = nextStep[answer.next_action] || conversation.current_step;
+  if (isGreeting(content)) currentStep = "welcome";
   if (content === "buy_now_yes") currentStep = "offer_details";
   if (content === "buy_now_no") currentStep = "stopped";
   await supabase.from("whatsapp_conversations").update({ language: lang, current_step: currentStep, customer_first_name: answer.extracted.full_name?.split(/\s+/)[0] || conversation.customer_first_name, customer_data: { ...customerData, ...(shippingResult ? { shipping_quote: shippingResult } : {}) }, last_message_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", conversation.id);
