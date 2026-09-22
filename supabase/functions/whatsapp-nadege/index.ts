@@ -237,8 +237,13 @@ async function processMessage(message: WaMessage, profileName: string | undefine
   const system = prompt({ language: lang, step: conversation.current_step, customer_data: conversation.customer_data ?? {}, first_name: conversation.customer_first_name, support_email: "contact@juncreatif.store", catalog, delivery, order: null, payment_status: "none", tracking: null, history: (history ?? []).reverse() });
   const storedQuote = (conversation.customer_data as Record<string, unknown> | null)?.shipping_quote as Record<string, unknown> | undefined;
   const storedRates = Array.isArray(storedQuote?.rates) ? storedQuote.rates as Array<Record<string, unknown>> : [];
-  const selectedRateIndex = content.match(/^shipping_rate_(\d+)$/)?.[1];
-  const selectedRate = selectedRateIndex == null ? null : storedRates[Number(selectedRateIndex)] ?? null;
+  const buttonRateIndex = content.match(/^shipping_rate_(\d+)$/)?.[1];
+  const canRecoverTypedSelection = storedRates.length > 0
+    && !(conversation.customer_data as Record<string, unknown> | null)?.selected_shipping_rate
+    && ["shipping_quote", "summary", "payment"].includes(conversation.current_step);
+  const typedRateIndex = canRecoverTypedSelection && /^[1-3]$/.test(content.trim()) ? Number(content.trim()) - 1 : null;
+  const selectedRateIndex = buttonRateIndex == null ? typedRateIndex : Number(buttonRateIndex);
+  const selectedRate = selectedRateIndex == null ? null : storedRates[selectedRateIndex] ?? null;
   const savedCustomer = (conversation.customer_data ?? {}) as Record<string, unknown>;
   const bookPrice = Number(settings.book_price_mxn);
   const selectedShippingPrice = Number(selectedRate?.price ?? 0);
