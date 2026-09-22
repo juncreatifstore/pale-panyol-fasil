@@ -145,6 +145,14 @@ function quoteRows(payload: unknown, carrier: string) {
   })).filter((row) => Number.isFinite(row.price) && row.price >= 0);
 }
 
+async function validateMexicanPostalCode(postalCode: string) {
+  const response = await fetch(`https://geocodes.envia.com/zipcode/MX/${encodeURIComponent(postalCode)}`);
+  const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
+  const data = payload.data as Record<string, unknown> | undefined;
+  if (!response.ok || !data?.postalCode || !data?.city || !data?.state) return null;
+  return { postalCode: String(data.postalCode), city: String(data.city), state: String(data.state) };
+}
+
 async function requestEnviaQuote(shipping: Record<string, string>, settings: SalesSettings, customer: Record<string, unknown>) {
   const required = ["full_name", "phone", "postal_code", "street", "colony", "city", "state"];
   const missing = required.filter((field) => !String(customer[field] ?? "").trim());
@@ -154,20 +162,28 @@ async function requestEnviaQuote(shipping: Record<string, string>, settings: Sal
   if (!shipping?.api_key || configMissing.length) return { error: "configuration", missing: configMissing };
   if (missing.length) return { error: "address", missing: [...new Set(missing)] };
 
+  const [originGeo, destinationGeo] = await Promise.all([
+    validateMexicanPostalCode(String(settings.origin_postal_code)),
+    validateMexicanPostalCode(String(customer.postal_code)),
+  ]);
+  if (!originGeo) return { error: "configuration", missing: ["valid_origin_postal_code"] };
+  if (!destinationGeo) return { error: "invalid_postal_code", missing: ["postal_code"] };
+
   const base = (shipping.api_url || "https://api.envia.com").replace(/\/$/, "");
   const carriers = strings(settings.envia_carriers).length ? strings(settings.envia_carriers) : ["dhl", "fedex", "estafeta"];
   const common = {
-    origin: { name: "Pale Panyol Fasil", company: "Pale Panyol Fasil", email: "contact@juncreatif.store", phone: settings.origin_phone, street: settings.origin_street, number: settings.origin_number || "S/N", district: settings.origin_district || "Centro", city: settings.origin_city, state: settings.origin_state, country: "MX", postalCode: settings.origin_postal_code },
-    destination: { name: customer.full_name, company: customer.full_name, email: "contact@juncreatif.store", phone: customer.phone, street: customer.street, number: customer.references || "S/N", district: customer.colony, city: customer.city, state: customer.state, country: "MX", postalCode: customer.postal_code },
+    origin: { name: "Pale Panyol Fasil", company: "Pale Panyol Fasil", email: "contact@juncreatif.store", phone: settings.origin_phone, street: settings.origin_street, number: settings.origin_number || "S/N", district: settings.origin_district || "Centro", city: originGeo.city, state: originGeo.state, country: "MX", postalCode: originGeo.postalCode },
+    destination: { name: customer.full_name, company: customer.full_name, email: "contact@juncreatif.store", phone: customer.phone, street: customer.street, number: customer.references || "S/N", district: customer.colony, city: destinationGeo.city, state: destinationGeo.state, country: "MX", postalCode: destinationGeo.postalCode },
     packages: [{ type: "box", content: "Libro Pale Panyol Fasil", amount: 1, declaredValue: Number(settings.book_price_mxn), weight: Number(settings.package_weight_kg), insurance: 0, weightUnit: "KG", lengthUnit: "CM", dimensions: { length: Number(settings.package_length_cm), width: Number(settings.package_width_cm), height: Number(settings.package_height_cm) } }],
   };
   const attempts = await Promise.all(carriers.map(async (carrier) => {
     const response = await fetch(`${base}/ship/rate/`, { method: "POST", headers: { authorization: `Bearer ${shipping.api_key}`, "content-type": "application/json" }, body: JSON.stringify({ ...common, shipment: { carrier, type: 1 } }) });
     const payload = await response.json().catch(() => ({}));
-    return response.ok ? quoteRows(payload, carrier) : [];
+    return response.ok ? { rates: quoteRows(payload, carrier), error: null } : { rates: [], error: { carrier, status: response.status, message: String((payload as Record<string, unknown>).message ?? (payload as Record<string, unknown>).error ?? "Envia rejected request").slice(0, 250) } };
   }));
-  const rates = attempts.flat().sort((a, b) => a.price - b.price).slice(0, 3);
-  return rates.length ? { rates } : { error: "no_rates", missing: [] };
+  const rates = attempts.flatMap((attempt) => attempt.rates).sort((a, b) => a.price - b.price).slice(0, 3);
+  const errors = attempts.map((attempt) => attempt.error).filter(Boolean);
+  return rates.length ? { rates, validated_destination: destinationGeo } : { error: "no_rates", missing: [], provider_errors: errors };
 }
 
 async function processMessage(message: WaMessage, profileName: string | undefined, secrets: Secrets) {
@@ -202,6 +218,11 @@ async function processMessage(message: WaMessage, profileName: string | undefine
   if (content === "buy_after_details") answer = { ...answer, messages: ["Trè byen 😊 Nan ki vil oswa zòn ou ye pou m eksplike livrezon an?"], buttons: [], next_action: "ask_zone" };
 
   const extracted = Object.fromEntries(Object.entries(answer.extracted).filter(([, value]) => value != null && value !== ""));
+  const postalInMessage = content.match(/\b\d{5}\b/)?.[0];
+  const phoneInMessage = content.match(/\+?\d[\d\s().-]{8,}\d/)?.[0]?.replace(/[\s().-]/g, "");
+  // Never persist a postal code or phone number guessed by the model.
+  if (postalInMessage) extracted.postal_code = postalInMessage; else delete extracted.postal_code;
+  if (phoneInMessage) extracted.phone = phoneInMessage; else delete extracted.phone;
   const customerData = { ...(conversation.customer_data ?? {}), ...extracted } as Record<string, unknown>;
   let shippingResult: Record<string, unknown> | null = null;
   if (answer.next_action === "request_shipping_quote") {
@@ -210,14 +231,19 @@ async function processMessage(message: WaMessage, profileName: string | undefine
     else if (kind === "cdmx") shippingResult = { free: true, zone: "cdmx", text: settings.cdmx_delivery };
     else shippingResult = await requestEnviaQuote(secrets.shipping ?? {}, settings, customerData);
   }
+  if (shippingResult?.error === "address") {
+    const labels: Record<string, string> = { full_name: "non konplè", phone: "nimewo telefòn", postal_code: "kòd postal 5 chif", postal_code_5_digits: "kòd postal 5 chif", street: "lari ak nimewo", colony: "koloni", city: "vil", state: "eta" };
+    const firstMissing = (shippingResult.missing as string[]).map((field) => labels[field] || field)[0] || "enfòmasyon adrès la";
+    answer = { ...answer, messages: [`Mwen bezwen *${firstMissing}* pou m kalkile pri livrezon Envia a.`], buttons: [], next_action: "ask_field" };
+  }
+  if (shippingResult?.error === "invalid_postal_code") answer = { ...answer, messages: ["Kòd postal sa a pa valab pou adrès la. Tanpri voye yon kòd postal Meksik ki gen 5 chif."], buttons: [], next_action: "ask_field" };
   await sendAnswer(secrets.whatsapp, message.from, answer);
   await sendConfiguredMedia(secrets.whatsapp, message.from, answer, settings);
   if (shippingResult?.free) await send(secrets.whatsapp, { to: message.from, type: "text", text: { preview_url: false, body: String(shippingResult.text || "Livrezon sa a gratis.") } });
   else if (Array.isArray(shippingResult?.rates)) {
     const rateText = (shippingResult.rates as Array<Record<string, unknown>>).map((rate, index) => `${index + 1}. ${rate.carrier} · ${rate.service}: *$${Number(rate.price).toFixed(2)} ${rate.currency}*`).join("\n");
     await send(secrets.whatsapp, { to: message.from, type: "text", text: { preview_url: false, body: `Men tarif Envia yo jwenn pou adrès la:\n${rateText}` } });
-  } else if (shippingResult?.error === "address") await send(secrets.whatsapp, { to: message.from, type: "text", text: { preview_url: false, body: "Pou m kalkile livrezon an, mwen bezwen non konplè, telefòn, lari, koloni, vil, eta ak kòd postal 5 chif la. Ki enfòmasyon ki manke a?" } });
-  else if (shippingResult?.error) await send(secrets.whatsapp, { to: message.from, type: "text", text: { preview_url: false, body: "Mwen pa ka kalkile tarif Envia a kounye a. Tanpri kontakte contact@juncreatif.store." } });
+  } else if (shippingResult?.error && !["address", "invalid_postal_code"].includes(String(shippingResult.error))) await send(secrets.whatsapp, { to: message.from, type: "text", text: { preview_url: false, body: "Envia pa jwenn yon tarif pou adrès sa a kounye a. Verifye kòd postal la oswa kontakte contact@juncreatif.store." } });
   const nextStep: Record<string, string> = { show_catalog: "choose_book", send_photos: "book_details", send_sample: "sample", show_price: "price", ask_zone: "delivery_zone", ask_field: "address", request_shipping_quote: "shipping_quote", show_summary: "summary", create_payment_link: "payment", send_tracking: "tracking" };
   let currentStep = nextStep[answer.next_action] || conversation.current_step;
   if (isGreeting(content)) currentStep = "welcome";
