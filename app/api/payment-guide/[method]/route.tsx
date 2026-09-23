@@ -22,6 +22,13 @@ const guides = {
     steps: ["Chwazi Tarjeta de débito.", "Ekri enfòmasyon kat la sou paj sekirize a.", "Peze Pagar epi tann konfimasyon an."],
     note: "Ou pa bezwen yon kont Mercado Pago.",
   },
+  spei: {
+    icon: "🏦",
+    title: "Transfè SPEI",
+    color: "#e0e7ff",
+    steps: ["Chwazi Transferencia SPEI.", "Mercado Pago ap ba ou yon CLABE ak yon referans inik.", "Louvri aplikasyon bank ou epi fè transfè a ak done sa yo.", "Verifye montan ak referans lan anvan ou konfime."],
+    note: "Pa transfere sou okenn kont yo voye nan WhatsApp. Itilize sèlman CLABE ki parèt sou paj Mercado Pago a.",
+  },
   cash: {
     icon: "💵",
     title: "Peman kach",
