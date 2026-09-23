@@ -39,6 +39,14 @@ async function sendWhatsApp(wa: Record<string, string>, to: string, body: string
   if (!response.ok) throw new Error(`WhatsApp ${response.status}: ${await response.text()}`);
 }
 
+function supportSuffix(settings: Record<string, any> | null) {
+  const email = String(settings?.after_sales_email || "").trim();
+  const phone = String(settings?.after_sales_whatsapp || "").replace(/[^\d]/g, "");
+  const contacts = [email ? `Imèl: *${email}*` : "", phone ? `WhatsApp SAV: https://wa.me/${phone}` : ""].filter(Boolean);
+  const message = String(settings?.after_sales_service || "").trim();
+  return contacts.length || message ? `\n\n🛟 *Sèvis apre-vant*\n${[message, ...contacts].filter(Boolean).join("\n")}` : "";
+}
+
 Deno.serve(async (request) => {
   try {
     if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
@@ -73,7 +81,8 @@ Deno.serve(async (request) => {
       const { data: conversation } = await supabase.from("whatsapp_conversations").select("wa_phone,customer_data").eq("order_id", order.id).maybeSingle();
       if (conversation && secrets.whatsapp?.access_token) {
         const orderNumber = (conversation.customer_data as Record<string, any>)?.mercado_pago?.order_number || order.id;
-        await sendWhatsApp(secrets.whatsapp, conversation.wa_phone, `✅ Mercado Pago konfime peman ou an.\nKòmand: *${orderNumber}*\nMontan: *$${Number(payment.transaction_amount).toFixed(2)} MXN*\n\nN ap prepare kòmand ou epi n ap voye nimewo swivi a ba ou.`);
+        const { data: settings } = await supabase.from("sales_settings").select("after_sales_service,after_sales_whatsapp,after_sales_email").eq("id", true).maybeSingle();
+        await sendWhatsApp(secrets.whatsapp, conversation.wa_phone, `✅ Mercado Pago konfime peman ou an.\nKòmand: *${orderNumber}*\nMontan: *$${Number(payment.transaction_amount).toFixed(2)} MXN*\n\nN ap prepare kòmand ou epi n ap voye nimewo swivi a ba ou.${supportSuffix(settings)}`);
       }
     }
     return json({ received: true });
