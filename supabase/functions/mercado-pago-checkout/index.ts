@@ -30,6 +30,14 @@ async function sendWhatsApp(wa: Record<string, string>, to: string, body: string
   if (!response.ok) console.error("WhatsApp confirmation failed", response.status, await response.text());
 }
 
+function supportSuffix(settings: JsonRecord | null) {
+  const email = String(settings?.after_sales_email || "").trim();
+  const phone = String(settings?.after_sales_whatsapp || "").replace(/[^\d]/g, "");
+  const contacts = [email ? `Imèl: *${email}*` : "", phone ? `WhatsApp SAV: https://wa.me/${phone}` : ""].filter(Boolean);
+  const message = String(settings?.after_sales_service || "").trim();
+  return contacts.length || message ? `\n\n🛟 *Sèvis apre-vant*\n${[message, ...contacts].filter(Boolean).join("\n")}` : "";
+}
+
 Deno.serve(async (request) => {
   try {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
@@ -88,7 +96,10 @@ Deno.serve(async (request) => {
     const feeDetails = Array.isArray(payment.fee_details) ? payment.fee_details.map(record) : [];
     await supabase.from("payments").insert({ order_id: found.order.id, provider: "mercado_pago", provider_payment_id: String(payment.id), status: normalized, amount_mxn: Number(found.order.total_mxn), fee_mxn: Number(feeDetails.reduce((sum, fee) => sum + Number(fee.amount || 0), 0)), paid_at: normalized === "approved" ? payment.date_approved || new Date().toISOString() : null });
     await supabase.from("orders").update({ status: normalized === "approved" ? "paid" : "payment_pending", payment_reference: String(payment.id), paid_at: normalized === "approved" ? payment.date_approved || new Date().toISOString() : null }).eq("id", found.order.id);
-    if (normalized === "approved" && integration.whatsapp?.access_token) await sendWhatsApp(integration.whatsapp, found.conversation.wa_phone, `✅ Mercado Pago konfime peman ou an.\nKòmand: *${found.order.order_number}*\nMontan: *$${Number(found.order.total_mxn).toFixed(2)} MXN*\n\nN ap prepare kòmand ou epi n ap voye nimewo swivi a ba ou.`);
+    if (normalized === "approved" && integration.whatsapp?.access_token) {
+      const { data: settings } = await supabase.from("sales_settings").select("after_sales_service,after_sales_whatsapp,after_sales_email").eq("id", true).maybeSingle();
+      await sendWhatsApp(integration.whatsapp, found.conversation.wa_phone, `✅ Mercado Pago konfime peman ou an.\nKòmand: *${found.order.order_number}*\nMontan: *$${Number(found.order.total_mxn).toFixed(2)} MXN*\n\nN ap prepare kòmand ou epi n ap voye nimewo swivi a ba ou.${supportSuffix(settings)}`);
+    }
     const paymentUrl = record(record(payment.point_of_interaction).transaction_data).ticket_url || record(payment.transaction_details).external_resource_url || null;
     return json({ status: normalized, status_detail: payment.status_detail, order_number: found.order.order_number, payment_url: paymentUrl });
   } catch (error) {
