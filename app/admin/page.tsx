@@ -179,7 +179,9 @@ function SalesSettings({ item, saving, onSubmit }: { item: Row; saving: boolean;
       <TextArea name="photoUrls" label="Photos du livre — une URL par ligne" defaultValue={list(item.photo_urls)} />
       <TextArea name="bookBenefits" label="Avantages réels — un par ligne" defaultValue={list(item.book_benefits)} />
       <TextArea name="testimonials" label="Expériences clients réelles — une par ligne" defaultValue={list(item.testimonials)} />
-      <TextArea name="afterSalesService" label="Service après-vente" defaultValue={str(item.after_sales_service)} />
+      <Input name="afterSalesWhatsapp" label="WhatsApp du service après-vente" type="tel" placeholder="+52 55 1234 5678" defaultValue={str(item.after_sales_whatsapp)} />
+      <Input name="afterSalesEmail" label="E-mail du service après-vente" type="email" placeholder="contact@exemple.com" defaultValue={str(item.after_sales_email)} />
+      <TextArea name="afterSalesService" label="Message du service après-vente" defaultValue={str(item.after_sales_service)} />
       <TextArea name="tapachulaDelivery" label="Livraison gratuite Tapachula" defaultValue={str(item.tapachula_delivery)} />
       <TextArea name="cdmxDelivery" label="Livraison gratuite CDMX / métro" defaultValue={str(item.cdmx_delivery)} />
       <TextArea name="otherZonesDelivery" label="Autres zones du Mexique" defaultValue={str(item.other_zones_delivery)} />
