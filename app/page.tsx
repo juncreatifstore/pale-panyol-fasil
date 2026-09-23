@@ -131,6 +131,31 @@ export default function Home() {
         </div>
       </section>
 
+      <section id="paiement" className="border-y border-black/10 bg-white">
+        <div className="mx-auto grid max-w-7xl items-center gap-10 px-5 py-16 lg:grid-cols-[.85fr_1.15fr] lg:px-8">
+          <div className="mx-auto w-full max-w-md overflow-hidden rounded-[2rem] border border-black/10 bg-white p-4 shadow-xl shadow-black/8">
+            <Image
+              src="/mercado-pago-payment-methods.png"
+              alt="Moyens de paiement Mercado Pago acceptés : cartes de crédit, cartes de débit, PayCash et OXXO"
+              width={634}
+              height={894}
+              sizes="(min-width: 1024px) 420px, calc(100vw - 72px)"
+              className="h-auto w-full rounded-2xl"
+            />
+          </div>
+          <div>
+            <p className="text-sm font-extrabold uppercase tracking-[.18em] text-[#df482f]">Paiement flexible et sécurisé</p>
+            <h2 className="mt-3 max-w-2xl font-serif text-4xl font-black leading-tight sm:text-5xl">Peye jan ki pi fasil pou ou.</h2>
+            <p className="mt-5 max-w-2xl text-lg leading-8 text-[#44516a]">Aucun compte Mercado Pago n’est nécessaire. Au moment du paiement, vous pourrez choisir l’option disponible qui vous convient.</p>
+            <div className="mt-7 grid gap-3 sm:grid-cols-2">
+              {["Carte de crédit", "Carte de débit", "Espèces avec OXXO", "Espèces avec PayCash"].map((method) => <div key={method} className="flex items-center gap-3 rounded-2xl border border-[#d20d20]/10 bg-[#f7f7f5] p-4 font-bold"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#d20d20] text-white"><Check size={17} /></span>{method}</div>)}
+            </div>
+            <p className="mt-5 flex items-start gap-2 text-sm leading-6 text-[#667085]"><ShieldCheck size={18} className="mt-0.5 shrink-0 text-emerald-600" /> Mercado Pago traite le paiement de façon sécurisée. Les moyens proposés peuvent varier selon le montant et la disponibilité du service.</p>
+            <Button onClick={() => { trackJourney("order_started", { metadata: { placement: "payment_methods" } }); setCheckoutOpen(true); }} className="mt-7 h-14 rounded-full bg-[#df482f] px-8 text-base font-black text-white hover:bg-[#c83c27]">Commander et choisir mon paiement</Button>
+          </div>
+        </div>
+      </section>
+
       {settings.homepage_video_url && <section className="mx-auto max-w-5xl px-5 pb-16 lg:px-8"><div className="mb-6 text-center"><p className="text-sm font-extrabold uppercase tracking-[.18em] text-[#df482f]">Videyo an kreyòl</p><h2 className="mt-2 font-serif text-4xl font-black">Poukisa liv la enpòtan epi kijan pou itilize l</h2></div><video controls preload="metadata" className="aspect-video w-full rounded-3xl bg-black shadow-xl"><source src={settings.homepage_video_url} /></video></section>}
 
       <section id="contenu" className="bg-[#171717] text-white"><div className="mx-auto grid max-w-7xl gap-10 px-5 py-16 lg:grid-cols-2 lg:px-8"><div><p className="text-sm font-bold uppercase tracking-[.18em] text-[#ff7a83]">Poukisa liv sa a?</p><h2 className="mt-3 max-w-xl font-serif text-4xl font-black leading-tight sm:text-5xl">Panyòl la eksplike nan lang ou konprann.</h2><p className="mt-6 max-w-xl text-lg leading-8 text-white/75">Liv la fèt pou ede w kominike chak jou nan travay, lekòl, lopital, mache oswa nan lari. Li sèvi ak yon metòd senp, egzanp ki soti nan lavi reyèl ak egzèsis ou ka pratike.</p></div><div className="grid gap-4 sm:grid-cols-2">{["Vokabilè pratik pou Meksik ak Chili", "Konjigasyon vèb ak fraz senp", "Dyalòg pou sitiyasyon reyèl", "Egzèsis ak repons pou verifye pwogrè w"].map((text, i) => <div key={text} className="rounded-2xl border border-white/15 bg-white/8 p-5"><span className="mb-4 grid h-8 w-8 place-items-center rounded-full bg-[#df482f] text-sm font-black">{i + 1}</span><p className="font-semibold leading-6">{text}</p></div>)}</div></div></section>
