@@ -148,6 +148,7 @@ async function sendPaymentGuide(wa: Record<string, string>, to: string) {
     { method: "wallet", caption: "🤝 *Kont Mercado Pago*\nKonekte sou kont ou epi chwazi lajan oswa mwayen peman ki deja anrejistre ladan l." },
     { method: "credit", caption: "💳 *Kat kredi*\nAntre enfòmasyon kat la sou paj sekirize Mercado Pago a epi chwazi vèsman ki disponib." },
     { method: "debit", caption: "💳 *Kat debi*\nAntre enfòmasyon kat debi a epi peze *Pagar*. Ou pa bezwen yon kont Mercado Pago." },
+    { method: "spei", caption: "🏦 *Transfè SPEI*\nChwazi SPEI, pran CLABE ak referans Mercado Pago ba ou yo, epi fè transfè a nan aplikasyon bank ou. Verifye montan ak referans lan anvan ou konfime." },
     { method: "cash", caption: "💵 *Peman kach — opsyon anpil kliyan prefere*\n1. Chwazi *Efectivo*.\n2. Ranpli non, siyati ak imèl ou.\n3. Chwazi OXXO, 7-Eleven, Santander oswa yon lòt kote ki parèt.\n4. Peze *Pagar* pou jwenn fich/kòd la.\n5. Ale nan kote a, montre kòd la epi peye kach.\n\nKonsève resi a. N ap konfime kòmand lan otomatikman apre Mercado Pago valide peman an." },
   ];
   for (const guide of guides) await send(wa, { to, type: "image", image: { link: `${base}/${guide.method}`, caption: guide.caption } });
