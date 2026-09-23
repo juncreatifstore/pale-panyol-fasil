@@ -1,24 +1,26 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { BookOpen, Boxes, CheckCircle2, CircleDollarSign, CreditCard, LayoutDashboard, LogOut, Megaphone, Menu, Plus, RefreshCw, Search, Settings2, ShoppingBag, Truck, Users, X } from "lucide-react";
+import { Activity, BookOpen, Boxes, CheckCircle2, CircleDollarSign, CreditCard, LayoutDashboard, LogOut, Megaphone, Menu, MousePointerClick, Plus, RefreshCw, Search, Settings2, ShoppingBag, Truck, Users, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
-type Section = "dashboard" | "sales" | "finances" | "stock" | "livraisons" | "commandes" | "marketing" | "integrations";
+type Section = "dashboard" | "journey" | "sales" | "finances" | "stock" | "livraisons" | "commandes" | "marketing" | "integrations";
 type Row = Record<string, unknown>;
-type Data = { orders: Row[]; customers: Row[]; locations: Row[]; movements: Row[]; batches: Row[]; payments: Row[]; shipments: Row[]; budgets: Row[]; campaigns: Row[]; integrations: Row[]; secretStatuses: Row[]; salesSettings: Row | null };
-const emptyData: Data = { orders: [], customers: [], locations: [], movements: [], batches: [], payments: [], shipments: [], budgets: [], campaigns: [], integrations: [], secretStatuses: [], salesSettings: null };
+type Data = { orders: Row[]; customers: Row[]; locations: Row[]; movements: Row[]; batches: Row[]; payments: Row[]; shipments: Row[]; budgets: Row[]; campaigns: Row[]; integrations: Row[]; secretStatuses: Row[]; salesSettings: Row | null; journeyEvents: Row[]; conversations: Row[]; messages: Row[] };
+const emptyData: Data = { orders: [], customers: [], locations: [], movements: [], batches: [], payments: [], shipments: [], budgets: [], campaigns: [], integrations: [], secretStatuses: [], salesSettings: null, journeyEvents: [], conversations: [], messages: [] };
 
 const menu = [
-  ["dashboard", "Vue d’ensemble", LayoutDashboard], ["sales", "Livre & vente", BookOpen], ["finances", "Finances", CircleDollarSign], ["stock", "Stock & production", Boxes], ["livraisons", "Livraisons", Truck], ["commandes", "Clients & commandes", Users], ["marketing", "Marketing", Megaphone], ["integrations", "API & intégrations", Settings2],
+  ["dashboard", "Vue d’ensemble", LayoutDashboard], ["journey", "Parcours clients", Activity], ["sales", "Livre & vente", BookOpen], ["finances", "Finances", CircleDollarSign], ["stock", "Stock & production", Boxes], ["livraisons", "Livraisons", Truck], ["commandes", "Clients & commandes", Users], ["marketing", "Marketing", Megaphone], ["integrations", "API & intégrations", Settings2],
 ] as const;
 const pesos = new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN", maximumFractionDigits: 0 });
 const date = (value: unknown) => value ? new Intl.DateTimeFormat("fr-MX", { dateStyle: "medium" }).format(new Date(String(value))) : "—";
 const money = (value: unknown) => pesos.format(Number(value ?? 0));
 const str = (value: unknown) => String(value ?? "");
 const orderStatus: Record<string, string> = { pending: "En attente", payment_pending: "Paiement en attente", paid: "Payée", preparing: "Préparation", shipped: "Expédiée", delivered: "Livrée", cancelled: "Annulée", refunded: "Remboursée" };
+const journeyLabels: Record<string, string> = { page_view: "Visite du site", book_photo_view: "Photo consultée", summary_download: "Résumé téléchargé", whatsapp_opened: "WhatsApp ouvert", order_started: "Commande commencée", delivery_selected: "Livraison choisie", shipping_quote_requested: "Tarif demandé", shipping_quote_received: "Tarif reçu", checkout_created: "Commande créée", payment_page_view: "Page de paiement", payment_method_selected: "Moyen de paiement choisi", payment_submitted: "Paiement envoyé", payment_approved: "Paiement approuvé", payment_failed: "Paiement échoué" };
+const conversationSteps: Record<string, string> = { welcome: "Accueil", delivery: "Livraison", address: "Adresse", quote: "Tarifs", payment: "Paiement", tracking: "Suivi", completed: "Terminée", stopped: "Arrêtée" };
 const shipmentStatus: Record<string, string> = { pending: "En attente", label_created: "Étiquette créée", picked_up: "Collectée", in_transit: "En transit", out_for_delivery: "En livraison", delivered: "Livrée", exception: "Incident", cancelled: "Annulée" };
 const productionStatus: Record<string, string> = { planned: "Planifié", approved: "Approuvé", printing: "Impression", received: "Reçu", cancelled: "Annulé" };
 const campaignStatus: Record<string, string> = { draft: "Brouillon", active: "Active", paused: "En pause", completed: "Terminée" };
@@ -93,6 +95,17 @@ export default function AdminPage() {
   const currentBudget = data.budgets[0];
   const filteredOrders = useMemo(() => data.orders.filter((item) => `${item.order_number} ${((item.customers as Row | null)?.full_name ?? "")} ${((item.customers as Row | null)?.city ?? "")}`.toLowerCase().includes(search.toLowerCase())), [data.orders, search]);
   const title = menu.find(([id]) => id === section)?.[1] ?? "Administration";
+  const eventCount = (type: string) => data.journeyEvents.filter((event) => event.event_type === type).length;
+  const uniqueSessions = new Set(data.journeyEvents.map((event) => str(event.session_id))).size;
+  const orderStarts = eventCount("order_started"), checkouts = eventCount("checkout_created"), paymentViews = eventCount("payment_page_view");
+  const pendingOrders = data.orders.filter((item) => item.status === "payment_pending").length;
+  const activeConversations = data.conversations.filter((item) => !["completed", "tracking", "stopped"].includes(str(item.current_step))).length;
+  const marketingSuggestions = [
+    uniqueSessions >= 5 && orderStarts / uniqueSessions < .08 ? "Peu de visiteurs commencent une commande : placez une offre claire et un bouton Commander plus haut, avec le prix et la livraison visibles." : "Le bouton de commande attire correctement les visiteurs; testez maintenant deux variantes du texte pour améliorer encore le taux de clic.",
+    orderStarts > 2 && checkouts / orderStarts < .45 ? "Beaucoup de clients quittent avant la création de la commande : simplifiez le formulaire et rassurez-les sur le paiement en espèces et les délais." : "Le passage du formulaire vers la commande est satisfaisant; concentrez les rappels sur les paiements non terminés.",
+    pendingOrders > 0 ? `${pendingOrders} commande(s) attendent un paiement : relancez avec le même lien et expliquez clairement OXXO, 7-Eleven et SPEI.` : "Aucune commande en attente de paiement : privilégiez l’acquisition de nouveaux visiteurs.",
+    activeConversations > 0 ? `${activeConversations} conversation(s) restent ouvertes : adaptez les relances au dernier sujet du client plutôt que d’envoyer un message générique.` : "Les conversations actives sont traitées; partagez davantage de témoignages et de pages réelles du livre.",
+  ];
 
   const signOut = async () => { await createSupabaseBrowserClient().auth.signOut(); router.replace("/admin/login"); router.refresh(); };
 
@@ -112,6 +125,34 @@ export default function AdminPage() {
         {section === "dashboard" && <>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Metric label="Revenu confirmé" value={money(grossRevenue)} icon={CircleDollarSign} /><Metric label="Commandes" value={String(data.orders.length)} icon={ShoppingBag} /><Metric label="Livres disponibles" value={String(totalStock)} icon={Boxes} /><Metric label="Clients" value={String(data.customers.length)} icon={Users} /></div>
           <Panel title="Commandes récentes" description="Données réelles Supabase"><Orders rows={data.orders.slice(0, 6)} onChange={(id, status) => void run("PATCH", { action: "order_status", id, status }, "Statut enregistré")} /></Panel>
+        </>}
+
+        {section === "journey" && <>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+            <Metric label="Visiteurs suivis" value={String(uniqueSessions)} icon={MousePointerClick} />
+            <Metric label="Commandes commencées" value={String(orderStarts)} icon={ShoppingBag} />
+            <Metric label="Commandes créées" value={String(checkouts)} icon={CheckCircle2} />
+            <Metric label="Pages de paiement" value={String(paymentViews)} icon={CreditCard} />
+            <Metric label="Achats confirmés" value={String(Math.max(eventCount("payment_approved"), data.orders.filter((item) => item.status === "paid").length))} icon={CircleDollarSign} />
+          </div>
+
+          <Panel title="Entonnoir de conversion" description="Chaque étape montre où les visiteurs continuent ou abandonnent.">
+            <div className="grid gap-3 p-5 md:grid-cols-5">{[
+              ["Visites", uniqueSessions], ["Commande commencée", orderStarts], ["Commande créée", checkouts], ["Paiement ouvert", paymentViews], ["Achat confirmé", Math.max(eventCount("payment_approved"), data.orders.filter((item) => item.status === "paid").length)],
+            ].map(([label, value], index) => <div key={String(label)} className="relative rounded-2xl border bg-slate-50 p-4"><p className="text-xs font-bold uppercase text-slate-500">Étape {index + 1}</p><p className="mt-2 text-2xl font-black text-slate-950">{String(value)}</p><p className="mt-1 text-sm font-bold">{String(label)}</p>{index > 0 && <p className="mt-2 text-xs text-slate-500">{uniqueSessions ? `${Math.round(Number(value) / uniqueSessions * 100)} % des visiteurs` : "Collecte en cours"}</p>}</div>)}</div>
+          </Panel>
+
+          <Panel title="Suggestions marketing automatiques" description="Recommandations recalculées selon les statistiques actuelles.">
+            <div className="grid gap-3 p-5 md:grid-cols-2">{marketingSuggestions.map((suggestion, index) => <div key={suggestion} className="flex gap-3 rounded-2xl border border-red-100 bg-red-50/60 p-4"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#d20d20] text-sm font-black text-white">{index + 1}</span><p className="text-sm font-semibold leading-6 text-slate-800">{suggestion}</p></div>)}</div>
+          </Panel>
+
+          <Panel title="Parcours récents sur le site" description="Les 100 dernières actions, sans enregistrer d’adresse IP.">
+            <DataTable headers={["Session", "Action", "Source", "Commande", "Date"]} rows={data.journeyEvents.slice(0, 100).map((item) => [str(item.session_id).slice(0, 8), journeyLabels[str(item.event_type)] ?? str(item.event_type), str(item.source), str(item.order_id), date(item.created_at)])} />
+          </Panel>
+
+          <Panel title="Parcours des conversations WhatsApp" description={`${activeConversations} conversation(s) encore active(s)`}>
+            <DataTable headers={["Client", "Téléphone", "Étape actuelle", "Messages", "Dernier échange", "Relance", "Commande", "Dernière activité"]} rows={data.conversations.map((item) => { const conversationMessages = data.messages.filter((message) => message.conversation_id === item.id); const order = item.orders as Row | null; return [str(item.customer_first_name) || "Client", str(item.wa_phone), conversationSteps[str(item.current_step)] ?? str(item.current_step), String(conversationMessages.length), str(conversationMessages[0]?.content).slice(0, 80), str(item.reminder_stage), str(order?.order_number), date(item.last_message_at)]; })} />
+          </Panel>
         </>}
 
         {section === "sales" && data.salesSettings && <SalesSettings item={data.salesSettings} saving={saving} onSubmit={submit("sales_settings", "PATCH", "Paramètres de vente enregistrés")} />}
