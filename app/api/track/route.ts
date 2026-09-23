@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { createClient } from "@supabase/supabase-js";
+import { supabasePublishableKey, supabaseUrl } from "@/lib/supabase/config";
 
 const allowedEvents = new Set([
   "page_view", "book_photo_view", "summary_download", "whatsapp_opened",
@@ -22,7 +23,8 @@ export async function POST(request: Request) {
       ? JSON.parse(JSON.stringify(body.metadata).slice(0, 4000))
       : {};
     const orderId = clean(body.orderId, 50);
-    const { error } = await createSupabaseAdminClient().from("customer_journey_events").insert({
+    const supabase = createClient(supabaseUrl, supabasePublishableKey, { auth: { persistSession: false } });
+    const { error } = await supabase.from("customer_journey_events").insert({
       session_id: sessionId,
       event_type: eventType,
       source: ["website", "payment"].includes(clean(body.source, 20)) ? clean(body.source, 20) : "website",
