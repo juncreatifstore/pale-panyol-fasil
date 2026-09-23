@@ -116,6 +116,14 @@ function strings(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0) : [];
 }
 
+function supportContact(settings: SalesSettings) {
+  const email = String(settings.after_sales_email || "").trim();
+  const rawPhone = String(settings.after_sales_whatsapp || "").trim();
+  const phone = rawPhone.replace(/[^\d]/g, "");
+  const parts = [email ? `imèl *${email}*` : "", phone ? `WhatsApp https://wa.me/${phone}` : ""].filter(Boolean);
+  return parts.length ? parts.join(" oswa ") : "sèvis apre-vant la";
+}
+
 function placeKind(data: Record<string, unknown>) {
   const value = `${data.delivery_zone ?? ""} ${data.city ?? ""} ${data.state ?? ""}`.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   if (value.includes("tapachula")) return "tapachula";
@@ -217,8 +225,8 @@ async function requestEnviaQuote(shipping: Record<string, string>, settings: Sal
   const base = (shipping.api_url || "https://api.envia.com").replace(/\/$/, "");
   const carriers = strings(settings.envia_carriers).length ? strings(settings.envia_carriers) : ["dhl", "fedex", "estafeta"];
   const common = {
-    origin: { name: "Pale Panyol Fasil", company: "Pale Panyol Fasil", email: "contact@juncreatif.store", phone: settings.origin_phone, street: settings.origin_street, number: settings.origin_number || "S/N", district: settings.origin_district || "Centro", city: originGeo.city, state: originGeo.state, country: "MX", postalCode: originGeo.postalCode },
-    destination: { name: customer.full_name, company: customer.full_name, email: "contact@juncreatif.store", phone: customer.phone, street: customer.street, number: customer.references || "S/N", district: customer.colony, city: destinationGeo.city, state: destinationGeo.state, country: "MX", postalCode: destinationGeo.postalCode },
+    origin: { name: "Pale Panyol Fasil", company: "Pale Panyol Fasil", email: settings.after_sales_email || "contact@juncreatif.store", phone: settings.origin_phone, street: settings.origin_street, number: settings.origin_number || "S/N", district: settings.origin_district || "Centro", city: originGeo.city, state: originGeo.state, country: "MX", postalCode: originGeo.postalCode },
+    destination: { name: customer.full_name, company: customer.full_name, email: settings.after_sales_email || "contact@juncreatif.store", phone: customer.phone, street: customer.street, number: customer.references || "S/N", district: customer.colony, city: destinationGeo.city, state: destinationGeo.state, country: "MX", postalCode: destinationGeo.postalCode },
     packages: [{ type: "box", content: "Libro Pale Panyol Fasil", amount: 1, declaredValue: Number(settings.book_price_mxn), weight: Number(settings.package_weight_kg), insurance: 0, weightUnit: "KG", lengthUnit: "CM", dimensions: { length: Number(settings.package_length_cm), width: Number(settings.package_width_cm), height: Number(settings.package_height_cm) } }],
   };
   const attempts = await Promise.all(carriers.map(async (carrier) => {
@@ -302,8 +310,9 @@ async function processMessage(message: WaMessage, profileName: string | undefine
   ]);
   if (settingsError || !settings) throw settingsError || new Error("Sales settings unavailable");
   const catalog = { books: [{ id: "pale-panyol-fasil", title: "Pale Panyol Fasil: Español Fácil para Haitianos", author: "Dieudonné Almonord", language: "Panyòl esplike an kreyòl ayisyen", format: "Kouvèti soup", pages: settings.book_pages, chapters: settings.book_chapters, dimensions_cm: `${settings.package_width_cm} × ${settings.package_height_cm} × ${settings.package_length_cm}`, price_mxn: settings.book_price_mxn, stock: (stock ?? []).reduce((sum, row) => sum + Number(row.quantity_on_hand), 0), photos: settings.photo_urls, summary_pdf_available: Boolean(settings.summary_pdf_url), benefits: settings.book_benefits, real_customer_experiences: settings.testimonials }] };
-  const delivery = { tapachula: settings.tapachula_delivery, cdmx_metro: settings.cdmx_delivery, other_mexico: settings.other_zones_delivery, after_sales: settings.after_sales_service };
-  const system = prompt({ language: lang, step: conversation.current_step, customer_data: conversation.customer_data ?? {}, first_name: conversation.customer_first_name, support_email: "contact@juncreatif.store", catalog, delivery, order: null, payment_status: "none", tracking: null, history: (history ?? []).reverse() });
+  const support = supportContact(settings);
+  const delivery = { tapachula: settings.tapachula_delivery, cdmx_metro: settings.cdmx_delivery, other_mexico: settings.other_zones_delivery, after_sales: settings.after_sales_service, after_sales_email: settings.after_sales_email, after_sales_whatsapp: settings.after_sales_whatsapp };
+  const system = prompt({ language: lang, step: conversation.current_step, customer_data: conversation.customer_data ?? {}, first_name: conversation.customer_first_name, support_email: support, catalog, delivery, order: null, payment_status: "none", tracking: null, history: (history ?? []).reverse() });
   const storedQuote = (conversation.customer_data as Record<string, unknown> | null)?.shipping_quote as Record<string, unknown> | undefined;
   const storedRates = Array.isArray(storedQuote?.rates) ? storedQuote.rates as Array<Record<string, unknown>> : [];
   const buttonRateIndex = content.match(/^shipping_rate_(\d+)$/)?.[1];
@@ -343,7 +352,7 @@ async function processMessage(message: WaMessage, profileName: string | undefine
   if (content === "continue_payment") {
     try {
       paymentPreference = await createPaymentPreference(secrets.mercado_pago ?? {}, conversation, settings, savedCustomer);
-      if (paymentPreference.error === "configuration") answer = { messages: ["Peman Mercado Pago a poko aktive. Tanpri kontakte contact@juncreatif.store pou nou ede w finalize kòmand lan."], buttons: [], intent: "complaint", next_action: "none", extracted: emptyExtracted };
+      if (paymentPreference.error === "configuration") answer = { messages: [`Peman Mercado Pago a poko aktive. Tanpri kontakte ${support} pou nou ede w finalize kòmand lan.`], buttons: [], intent: "complaint", next_action: "none", extracted: emptyExtracted };
       else if (paymentPreference.error === "shipping") answer = { messages: ["Tanpri chwazi yon opsyon livrezon anvan ou kontinye ak peman an."], buttons: [{ id: "change_shipping", title: "Chwazi livrezon" }], intent: "confirm", next_action: "none", extracted: emptyExtracted };
       else answer = {
         messages: [`✅ Kòmand *${paymentPreference.order_number}* anrejistre. Total la se *$${Number(paymentPreference.total).toFixed(2)} MXN*.`, `💰 Chwazi fason ou vle peye: kat, SPEI, Mercado Pago oswa *lajan kach*:\n${paymentPreference.init_point}\n\nMen eksplikasyon chak opsyon anba a. Pa voye enfòmasyon kat ou nan WhatsApp.`],
@@ -351,7 +360,7 @@ async function processMessage(message: WaMessage, profileName: string | undefine
       };
     } catch (error) {
       console.error("Mercado Pago preference error", error);
-      answer = { messages: ["Nou pa rive kreye lyen Mercado Pago a kounye a. Pa fè okenn lòt peman; tanpri eseye ankò oswa kontakte contact@juncreatif.store."], buttons: [], intent: "complaint", next_action: "none", extracted: emptyExtracted };
+      answer = { messages: [`Nou pa rive kreye lyen Mercado Pago a kounye a. Pa fè okenn lòt peman; tanpri eseye ankò oswa kontakte ${support}.`], buttons: [], intent: "complaint", next_action: "none", extracted: emptyExtracted };
     }
   }
   if (content === "change_shipping") answer = {
@@ -418,7 +427,7 @@ async function processMessage(message: WaMessage, profileName: string | undefine
         },
       },
     });
-  } else if (shippingResult?.error && !["address", "invalid_postal_code"].includes(String(shippingResult.error))) await send(secrets.whatsapp, { to: message.from, type: "text", text: { preview_url: false, body: "Envia pa jwenn yon tarif pou adrès sa a kounye a. Verifye kòd postal la oswa kontakte contact@juncreatif.store." } });
+  } else if (shippingResult?.error && !["address", "invalid_postal_code"].includes(String(shippingResult.error))) await send(secrets.whatsapp, { to: message.from, type: "text", text: { preview_url: true, body: `Envia pa jwenn yon tarif pou adrès sa a kounye a. Verifye kòd postal la oswa kontakte ${support}.` } });
   const nextStep: Record<string, string> = { show_catalog: "choose_book", send_photos: "book_details", send_sample: "sample", show_price: "price", ask_zone: "delivery_zone", ask_field: "address", request_shipping_quote: "shipping_quote", show_summary: "summary", create_payment_link: "payment", send_tracking: "tracking" };
   let currentStep = nextStep[answer.next_action] || conversation.current_step;
   if (isGreeting(content)) currentStep = "welcome";
