@@ -170,13 +170,32 @@ function DataTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
 function Empty() { return <div className="p-10 text-center text-sm text-slate-500">Aucune donnée enregistrée.</div>; }
 function SalesSettings({ item, saving, onSubmit }: { item: Row; saving: boolean; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
   const list = (value: unknown) => Array.isArray(value) ? value.join("\n") : "";
+  const [summaryUrl, setSummaryUrl] = useState(str(item.summary_pdf_url));
+  const [videoUrl, setVideoUrl] = useState(str(item.homepage_video_url));
+  const [photoUrls, setPhotoUrls] = useState<string[]>(Array.isArray(item.photo_urls) ? item.photo_urls.map(str).filter(Boolean) : []);
+  const [uploading, setUploading] = useState("");
+  const upload = async (file: File, folder: "summary" | "photos" | "video") => {
+    setUploading(folder);
+    try {
+      const safeName = file.name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9._-]/g, "-");
+      const path = `${folder}/${Date.now()}-${crypto.randomUUID()}-${safeName}`;
+      const supabase = createSupabaseBrowserClient();
+      const { error } = await supabase.storage.from("book-media").upload(path, file, { contentType: file.type, upsert: false });
+      if (error) throw error;
+      return supabase.storage.from("book-media").getPublicUrl(path).data.publicUrl;
+    } finally { setUploading(""); }
+  };
   return <Panel title="Configuration du livre et du parcours de vente" description="Ces données sont utilisées en temps réel par Nadège. N’ajoutez que des témoignages clients réels.">
     <form onSubmit={onSubmit} className="grid gap-4 p-5 md:grid-cols-2 xl:grid-cols-4">
       <Input name="bookPrice" label="Prix du livre (MXN)" type="number" step="0.01" defaultValue={str(item.book_price_mxn)} required />
       <Input name="bookPages" label="Nombre de pages" type="number" defaultValue={str(item.book_pages)} required />
       <Input name="bookChapters" label="Chapitres / sommaire" defaultValue={str(item.book_chapters)} wide />
-      <Input name="summaryPdfUrl" label="URL du PDF résumé" type="url" defaultValue={str(item.summary_pdf_url)} wide />
-      <TextArea name="photoUrls" label="Photos du livre — une URL par ligne" defaultValue={list(item.photo_urls)} />
+      <input type="hidden" name="summaryPdfUrl" value={summaryUrl} />
+      <input type="hidden" name="homepageVideoUrl" value={videoUrl} />
+      <input type="hidden" name="photoUrls" value={photoUrls.join("\n")} />
+      <MediaUpload label="Résumé PDF" accept="application/pdf" busy={uploading === "summary"} current={summaryUrl} onFiles={async (files) => { const url = await upload(files[0], "summary"); setSummaryUrl(url); }} onClear={() => setSummaryUrl("")} />
+      <MediaUpload label="Vidéo d’accueil en créole" accept="video/mp4,video/webm,video/quicktime" busy={uploading === "video"} current={videoUrl} onFiles={async (files) => { const url = await upload(files[0], "video"); setVideoUrl(url); }} onClear={() => setVideoUrl("")} />
+      <MediaUpload label="Photos réelles du livre" accept="image/jpeg,image/png,image/webp" multiple busy={uploading === "photos"} current={photoUrls.length ? `${photoUrls.length} photo(s) enregistrée(s)` : ""} onFiles={async (files) => { const urls: string[] = []; for (const file of files) urls.push(await upload(file, "photos")); setPhotoUrls((previous) => [...previous, ...urls]); }} onClear={() => setPhotoUrls([])} />
       <TextArea name="bookBenefits" label="Avantages réels — un par ligne" defaultValue={list(item.book_benefits)} />
       <TextArea name="testimonials" label="Expériences clients réelles — une par ligne" defaultValue={list(item.testimonials)} />
       <Input name="afterSalesWhatsapp" label="WhatsApp du service après-vente" type="tel" placeholder="+52 55 1234 5678" defaultValue={str(item.after_sales_whatsapp)} />
@@ -200,6 +219,13 @@ function SalesSettings({ item, saving, onSubmit }: { item: Row; saving: boolean;
       <button disabled={saving} className="rounded-xl bg-[#123f91] px-4 py-3 font-bold text-white md:col-span-2 xl:col-span-4">{saving ? "Enregistrement…" : "Enregistrer le parcours de vente"}</button>
     </form>
   </Panel>;
+}
+function MediaUpload({ label, accept, multiple, busy, current, onFiles, onClear }: { label: string; accept: string; multiple?: boolean; busy: boolean; current: string; onFiles: (files: File[]) => Promise<void>; onClear: () => void }) {
+  return <label className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm font-bold text-slate-700 md:col-span-2">
+    <span>{label}</span>
+    <input type="file" accept={accept} multiple={multiple} disabled={busy} onChange={(event) => { const files = Array.from(event.target.files ?? []); if (files.length) void onFiles(files).catch((error) => window.alert(error instanceof Error ? error.message : "Téléversement impossible")); event.currentTarget.value = ""; }} className="mt-3 block w-full text-sm font-normal file:mr-4 file:rounded-lg file:border-0 file:bg-[#123f91] file:px-4 file:py-2 file:font-bold file:text-white" />
+    <span className="mt-2 flex items-center justify-between gap-3 text-xs font-normal text-slate-500"><span className="truncate">{busy ? "Téléversement…" : current || "Aucun fichier enregistré"}</span>{current && <button type="button" onClick={onClear} className="font-bold text-red-600">Retirer</button>}</span>
+  </label>;
 }
 function TextArea({ name, label, defaultValue }: { name: string; label: string; defaultValue?: string }) { return <label className="text-sm font-bold text-slate-700 md:col-span-2"><span>{label}</span><textarea name={name} defaultValue={defaultValue} rows={4} className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 font-normal outline-none focus:border-[#123f91]" /></label>; }
 function IntegrationCard({ item, statuses, saving, onSave, onSecret, onDeleteSecret }: { item: Row; statuses: Row[]; saving: boolean; onSave: (payload: Row) => void; onSecret: (payload: Row) => void; onDeleteSecret: (payload: Row) => void }) {
