@@ -63,10 +63,6 @@ export default function Home() {
   useEffect(() => { trackJourney("page_view"); }, []);
 
   useEffect(() => {
-    if (productImages.length) trackJourney("book_photo_view", { metadata: { photo: activeImage + 1 } });
-  }, [activeImage, productImages.length]);
-
-  useEffect(() => {
     if (productImages.length < 2) return;
     const timer = window.setInterval(() => setActiveImage((current) => (current + 1) % productImages.length), 5000);
     return () => window.clearInterval(timer);
@@ -118,7 +114,7 @@ export default function Home() {
       <section id="inicio" className="mx-auto grid max-w-7xl gap-10 px-5 py-10 lg:grid-cols-[1.05fr_.95fr] lg:px-8 lg:py-16">
         <div className="relative aspect-[4/3] self-start overflow-hidden rounded-[2rem] bg-white shadow-2xl shadow-black/10 ring-1 ring-black/5">
           {productImages.length ? <Image src={productImages[Math.min(activeImage, productImages.length - 1)].src} alt={`Livre Pale Panyol Fasil — vue ${Math.min(activeImage, productImages.length - 1) + 1}`} fill priority sizes="(min-width: 1024px) 52vw, 100vw" className="object-cover object-center" /> : <div className="grid h-full place-items-center px-8 text-center text-[#d20d20]"><div><BookOpen className="mx-auto h-20 w-20" /><p className="mt-4 text-xl font-black">Photos réelles bientôt disponibles</p></div></div>}
-          {productImages.length > 1 && <><button onClick={() => setActiveImage((activeImage - 1 + productImages.length) % productImages.length)} aria-label="Photo précédente" className="absolute left-4 top-1/2 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full bg-white/90 shadow"><ChevronLeft /></button><button onClick={() => setActiveImage((activeImage + 1) % productImages.length)} aria-label="Photo suivante" className="absolute right-4 top-1/2 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full bg-white/90 shadow"><ChevronRight /></button></>}
+          {productImages.length > 1 && <><button onClick={() => { const next = (activeImage - 1 + productImages.length) % productImages.length; trackJourney("book_photo_view", { metadata: { photo: next + 1, direction: "previous" } }); setActiveImage(next); }} aria-label="Photo précédente" className="absolute left-4 top-1/2 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full bg-white/90 shadow"><ChevronLeft /></button><button onClick={() => { const next = (activeImage + 1) % productImages.length; trackJourney("book_photo_view", { metadata: { photo: next + 1, direction: "next" } }); setActiveImage(next); }} aria-label="Photo suivante" className="absolute right-4 top-1/2 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full bg-white/90 shadow"><ChevronRight /></button></>}
         </div>
         <div id="livre" className="flex flex-col justify-center">
           <p className="mb-3 text-sm font-extrabold uppercase tracking-[.18em] text-[#df482f]">Apprendre l’espagnol simplement</p>
