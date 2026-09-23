@@ -50,7 +50,9 @@ export async function GET() {
   const [orders, customers, locations, movements, batches, payments, shipments, budgets, campaigns, integrations, secretStatuses, salesSettings, journeyEvents, conversations, messages] = results;
   return NextResponse.json({
     orders: (orders.data ?? []).map((order) => ({ ...order, status_label: orderLabels[order.status] ?? order.status })),
-    customers: customers.data ?? [], locations: locations.data ?? [], movements: movements.data ?? [], batches: batches.data ?? [], payments: payments.data ?? [], shipments: shipments.data ?? [], budgets: budgets.data ?? [], campaigns: campaigns.data ?? [], integrations: integrations.data ?? [], secretStatuses: secretStatuses.data ?? [], salesSettings: salesSettings.data ?? null, journeyEvents: journeyEvents.data ?? [], conversations: conversations.data ?? [], messages: messages.data ?? [],
+    customers: customers.data ?? [], locations: locations.data ?? [], movements: movements.data ?? [], batches: batches.data ?? [], payments: payments.data ?? [], shipments: shipments.data ?? [], budgets: budgets.data ?? [], campaigns: campaigns.data ?? [], integrations: integrations.data ?? [], secretStatuses: secretStatuses.data ?? [], salesSettings: salesSettings.data ?? null,
+    journeyEvents: (journeyEvents.data ?? []).filter((event) => event.event_type !== "book_photo_view" || Boolean((event.metadata as Record<string, unknown> | null)?.direction)),
+    conversations: conversations.data ?? [], messages: messages.data ?? [],
   });
 }
 
