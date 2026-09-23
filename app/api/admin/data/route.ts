@@ -41,13 +41,16 @@ export async function GET() {
     supabase.from("integration_settings").select("*").order("provider"),
     supabase.from("integration_secret_status").select("provider,secret_key,configured_at").order("provider"),
     supabase.from("sales_settings").select("*").eq("id", true).single(),
+    supabase.from("customer_journey_events").select("*").order("created_at", { ascending: false }).limit(1000),
+    supabase.from("whatsapp_conversations").select("*,orders(order_number,status,total_mxn)").order("last_message_at", { ascending: false }).limit(200),
+    supabase.from("whatsapp_messages").select("id,conversation_id,direction,message_type,content,ai_intent,created_at").order("created_at", { ascending: false }).limit(500),
   ]);
   const failed = results.find((result) => result.error);
   if (failed?.error) return apiError(failed.error.message, 500);
-  const [orders, customers, locations, movements, batches, payments, shipments, budgets, campaigns, integrations, secretStatuses, salesSettings] = results;
+  const [orders, customers, locations, movements, batches, payments, shipments, budgets, campaigns, integrations, secretStatuses, salesSettings, journeyEvents, conversations, messages] = results;
   return NextResponse.json({
     orders: (orders.data ?? []).map((order) => ({ ...order, status_label: orderLabels[order.status] ?? order.status })),
-    customers: customers.data ?? [], locations: locations.data ?? [], movements: movements.data ?? [], batches: batches.data ?? [], payments: payments.data ?? [], shipments: shipments.data ?? [], budgets: budgets.data ?? [], campaigns: campaigns.data ?? [], integrations: integrations.data ?? [], secretStatuses: secretStatuses.data ?? [], salesSettings: salesSettings.data ?? null,
+    customers: customers.data ?? [], locations: locations.data ?? [], movements: movements.data ?? [], batches: batches.data ?? [], payments: payments.data ?? [], shipments: shipments.data ?? [], budgets: budgets.data ?? [], campaigns: campaigns.data ?? [], integrations: integrations.data ?? [], secretStatuses: secretStatuses.data ?? [], salesSettings: salesSettings.data ?? null, journeyEvents: journeyEvents.data ?? [], conversations: conversations.data ?? [], messages: messages.data ?? [],
   });
 }
 
