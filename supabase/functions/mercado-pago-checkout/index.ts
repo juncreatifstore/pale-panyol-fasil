@@ -17,8 +17,8 @@ async function getSecrets(): Promise<Secrets> {
 async function checkout(orderId: string, token: string) {
   const { data: conversation } = await supabase.from("whatsapp_conversations").select("wa_phone,customer_data").eq("order_id", orderId).maybeSingle();
   const saved = record(record(conversation?.customer_data).mercado_pago);
-  if (!conversation || !token || saved.checkout_token !== token) return null;
-  const { data: order } = await supabase.from("orders").select("id,order_number,total_mxn,status").eq("id", orderId).maybeSingle();
+  const { data: order } = await supabase.from("orders").select("id,order_number,total_mxn,status,public_checkout_token").eq("id", orderId).maybeSingle();
+  if (!order || !token || (saved.checkout_token !== token && order.public_checkout_token !== token)) return null;
   return order ? { order, conversation } : null;
 }
 
@@ -96,7 +96,7 @@ Deno.serve(async (request) => {
     const feeDetails = Array.isArray(payment.fee_details) ? payment.fee_details.map(record) : [];
     await supabase.from("payments").insert({ order_id: found.order.id, provider: "mercado_pago", provider_payment_id: String(payment.id), status: normalized, amount_mxn: Number(found.order.total_mxn), fee_mxn: Number(feeDetails.reduce((sum, fee) => sum + Number(fee.amount || 0), 0)), paid_at: normalized === "approved" ? payment.date_approved || new Date().toISOString() : null });
     await supabase.from("orders").update({ status: normalized === "approved" ? "paid" : "payment_pending", payment_reference: String(payment.id), paid_at: normalized === "approved" ? payment.date_approved || new Date().toISOString() : null }).eq("id", found.order.id);
-    if (normalized === "approved" && integration.whatsapp?.access_token) {
+    if (normalized === "approved" && found.conversation && integration.whatsapp?.access_token) {
       const { data: settings } = await supabase.from("sales_settings").select("after_sales_service,after_sales_whatsapp,after_sales_email").eq("id", true).maybeSingle();
       await sendWhatsApp(integration.whatsapp, found.conversation.wa_phone, `✅ Mercado Pago konfime peman ou an.\nKòmand: *${found.order.order_number}*\nMontan: *$${Number(found.order.total_mxn).toFixed(2)} MXN*\n\nN ap prepare kòmand ou epi n ap voye nimewo swivi a ba ou.${supportSuffix(settings)}`);
     }
