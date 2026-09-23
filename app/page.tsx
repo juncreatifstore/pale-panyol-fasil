@@ -6,6 +6,7 @@ import { BookOpen, Check, ChevronLeft, ChevronRight, Download, LoaderCircle, Map
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { trackJourney } from "@/lib/journey";
 
 type StoreSettings = { book_price_mxn: number; book_pages: number; summary_pdf_url: string | null; photo_urls: string[]; homepage_video_url: string | null };
 type Rate = { carrier: string; service: string; description: string; estimate: string; price: number; currency: string };
@@ -37,10 +38,12 @@ export default function Home() {
   const payload = (action: "quote" | "checkout") => ({ action, quantity, delivery: delivery.replaceAll("-", "_"), postalCode, ...customer, carrier: selectedRate?.carrier, service: selectedRate?.service });
   const calculateShipping = async () => {
     setCheckoutBusy(true); setCheckoutError("");
+    trackJourney("shipping_quote_requested", { metadata: { postalCode, quantity } });
     try {
       const response = await fetch("/api/storefront", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload("quote")) });
       const result = await response.json(); if (!response.ok) throw new Error(result.error || "Calcul impossible");
       setRates(result.rates); setSelectedRate(null); setShippingPrice(null);
+      trackJourney("shipping_quote_received", { metadata: { rateCount: result.rates?.length ?? 0 } });
     } catch (error) { setCheckoutError(error instanceof Error ? error.message : "Calcul impossible"); }
     finally { setCheckoutBusy(false); }
   };
@@ -49,11 +52,19 @@ export default function Home() {
     try {
       const response = await fetch("/api/storefront", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload("checkout")) });
       const result = await response.json(); if (!response.ok) throw new Error(result.error || "Commande impossible");
-      window.location.assign(result.checkout_url);
+      const orderId = new URL(result.checkout_url, window.location.origin).searchParams.get("order") ?? undefined;
+      trackJourney("checkout_created", { orderId, metadata: { orderNumber: result.order_number, total: result.total, delivery, quantity } });
+      window.setTimeout(() => window.location.assign(result.checkout_url), 150);
     } catch (error) { setCheckoutError(error instanceof Error ? error.message : "Commande impossible"); setCheckoutBusy(false); }
   };
 
   useEffect(() => { void fetch("/api/storefront").then((response) => response.ok ? response.json() : Promise.reject()).then((data) => setSettings({ ...fallbackSettings, ...data, photo_urls: Array.isArray(data.photo_urls) ? data.photo_urls : [] })).catch(() => undefined); }, []);
+
+  useEffect(() => { trackJourney("page_view"); }, []);
+
+  useEffect(() => {
+    if (productImages.length) trackJourney("book_photo_view", { metadata: { photo: activeImage + 1 } });
+  }, [activeImage, productImages.length]);
 
   useEffect(() => {
     if (productImages.length < 2) return;
@@ -100,7 +111,7 @@ export default function Home() {
             <span className="font-serif text-xl font-bold tracking-tight">Pale Panyol Fasil</span>
           </a>
           <nav className="hidden items-center gap-7 text-sm font-semibold md:flex"><a href="#livre" className="hover:text-[#df482f]">Le livre</a><a href="#contenu" className="hover:text-[#df482f]">Pourquoi ce livre</a><a href="#livraison" className="hover:text-[#df482f]">Livraison</a></nav>
-          <Button onClick={() => setCheckoutOpen(true)} className="rounded-full bg-[#df482f] px-5 text-white hover:bg-[#c83c27]"><ShoppingBag className="mr-2 h-4 w-4" /> Commander</Button>
+          <Button onClick={() => { trackJourney("order_started", { metadata: { placement: "header" } }); setCheckoutOpen(true); }} className="rounded-full bg-[#df482f] px-5 text-white hover:bg-[#c83c27]"><ShoppingBag className="mr-2 h-4 w-4" /> Commander</Button>
         </div>
       </header>
 
@@ -119,7 +130,7 @@ export default function Home() {
             <div><p className="text-sm text-[#667085]">Prix du livre</p><p className="text-4xl font-black">${price.toFixed(0)} <span className="text-base font-semibold">MXN</span></p></div>
             <div className="flex items-center rounded-full border border-[#171717]/15 bg-white p-1"><button aria-label="Diminuer la quantité" onClick={() => setQuantity(Math.max(1, quantity - 1))} className="grid h-10 w-10 place-items-center rounded-full hover:bg-[#f1eee7]"><Minus size={17} /></button><span className="w-10 text-center font-bold">{quantity}</span><button aria-label="Augmenter la quantité" onClick={() => setQuantity(quantity + 1)} className="grid h-10 w-10 place-items-center rounded-full hover:bg-[#f1eee7]"><Plus size={17} /></button></div>
           </div>
-          <div className="mt-6 grid gap-3 sm:grid-cols-2"><Button onClick={() => setCheckoutOpen(true)} className="h-14 rounded-full bg-[#df482f] text-base font-bold text-white hover:bg-[#c83c27]">Commander maintenant</Button>{settings.summary_pdf_url ? <Button asChild variant="outline" className="h-14 rounded-full border-[#d20d20]/25 bg-white text-base font-bold text-[#d20d20]"><a href={settings.summary_pdf_url} target="_blank" rel="noreferrer"><Download className="mr-2 h-5 w-5" /> Télécharger un aperçu</a></Button> : <Button disabled variant="outline" className="h-14 rounded-full">Aperçu bientôt disponible</Button>}</div>
+          <div className="mt-6 grid gap-3 sm:grid-cols-2"><Button onClick={() => { trackJourney("order_started", { metadata: { placement: "hero" } }); setCheckoutOpen(true); }} className="h-14 rounded-full bg-[#df482f] text-base font-bold text-white hover:bg-[#c83c27]">Commander maintenant</Button>{settings.summary_pdf_url ? <Button asChild variant="outline" className="h-14 rounded-full border-[#d20d20]/25 bg-white text-base font-bold text-[#d20d20]"><a href={settings.summary_pdf_url} target="_blank" rel="noreferrer" onClick={() => trackJourney("summary_download")}><Download className="mr-2 h-5 w-5" /> Télécharger un aperçu</a></Button> : <Button disabled variant="outline" className="h-14 rounded-full">Aperçu bientôt disponible</Button>}</div>
           <p className="mt-4 flex items-center gap-2 text-sm text-[#667085]"><ShieldCheck size={17} className="text-emerald-600" /> Paiement sécurisé avec Mercado Pago</p>
         </div>
       </section>
@@ -138,13 +149,13 @@ export default function Home() {
 
       <section id="livraison" className="mx-auto max-w-7xl px-5 pb-16 lg:px-8">
         <div className="mb-8 flex flex-col justify-between gap-3 sm:flex-row sm:items-end"><div><p className="text-sm font-extrabold uppercase tracking-[.18em] text-[#df482f]">Livraison flexible</p><h2 className="mt-2 font-serif text-4xl font-black">Choisissez comment recevoir votre livre</h2></div><p className="max-w-md text-[#667085]">Retirez-le gratuitement ou faites calculer la livraison nationale selon votre adresse.</p></div>
-        <RadioGroup value={delivery} onValueChange={(value) => { setDelivery(value); if (value !== "shipping") setShippingPrice(null); }} className="grid gap-4 lg:grid-cols-3">{deliveryOptions.map(({ id, title, detail, price, icon: Icon }) => <label key={id} htmlFor={id} className={`cursor-pointer rounded-2xl border-2 bg-white p-6 transition ${delivery === id ? "border-[#d20d20] shadow-lg" : "border-transparent hover:border-[#d20d20]/20"}`}><div className="flex items-start justify-between"><span className="grid h-11 w-11 place-items-center rounded-xl bg-[#fff0f1] text-[#d20d20]"><Icon /></span><RadioGroupItem value={id} id={id} /></div><h3 className="mt-5 text-lg font-black">{title}</h3><p className="mt-2 min-h-12 text-sm leading-6 text-[#667085]">{detail}</p><p className="mt-4 font-black text-[#d20d20]">{price === 0 ? "Gratuit" : "Calcul automatique"}</p></label>)}</RadioGroup>
+        <RadioGroup value={delivery} onValueChange={(value) => { setDelivery(value); trackJourney("delivery_selected", { metadata: { delivery: value } }); if (value !== "shipping") setShippingPrice(null); }} className="grid gap-4 lg:grid-cols-3">{deliveryOptions.map(({ id, title, detail, price, icon: Icon }) => <label key={id} htmlFor={id} className={`cursor-pointer rounded-2xl border-2 bg-white p-6 transition ${delivery === id ? "border-[#d20d20] shadow-lg" : "border-transparent hover:border-[#d20d20]/20"}`}><div className="flex items-start justify-between"><span className="grid h-11 w-11 place-items-center rounded-xl bg-[#fff0f1] text-[#d20d20]"><Icon /></span><RadioGroupItem value={id} id={id} /></div><h3 className="mt-5 text-lg font-black">{title}</h3><p className="mt-2 min-h-12 text-sm leading-6 text-[#667085]">{detail}</p><p className="mt-4 font-black text-[#d20d20]">{price === 0 ? "Gratuit" : "Calcul automatique"}</p></label>)}</RadioGroup>
         {delivery === "shipping" && <div className="mt-5 max-w-lg rounded-2xl bg-white p-4 text-sm text-[#667085] shadow-sm">Le tarif Envia sera calculé avec votre adresse complète dans le formulaire de commande.</div>}
       </section>
 
       <footer className="border-t border-[#171717]/10 px-5 py-8"><div className="mx-auto flex max-w-7xl flex-col justify-between gap-3 text-sm text-[#667085] sm:flex-row"><p>© 2026 Pale Panyol Fasil</p><p>Livraison au Mexique · Paiement sécurisé</p></div></footer>
 
-      <button onClick={() => setChatOpen(true)} className="fixed bottom-5 right-5 z-40 flex items-center gap-3 rounded-full bg-[#1da851] px-5 py-4 font-bold text-white shadow-xl hover:bg-[#168b42]" aria-label="Ouvrir le conseiller WhatsApp"><MessageCircle /> <span className="hidden sm:inline">Commander sur WhatsApp</span></button>
+      <button onClick={() => { trackJourney("whatsapp_opened"); setChatOpen(true); }} className="fixed bottom-5 right-5 z-40 flex items-center gap-3 rounded-full bg-[#1da851] px-5 py-4 font-bold text-white shadow-xl hover:bg-[#168b42]" aria-label="Ouvrir le conseiller WhatsApp"><MessageCircle /> <span className="hidden sm:inline">Commander sur WhatsApp</span></button>
       {chatOpen && <div className="fixed bottom-5 right-5 z-50 w-[min(390px,calc(100vw-24px))] overflow-hidden rounded-3xl bg-white shadow-2xl ring-1 ring-black/10"><div className="flex items-center justify-between bg-[#075e54] p-4 text-white"><div><p className="font-black">Conseiller Pale Panyol</p><p className="text-xs text-white/75">Réponse automatique · en ligne</p></div><button onClick={() => setChatOpen(false)} aria-label="Fermer"><X /></button></div><div className="min-h-52 space-y-3 bg-[#efe9df] p-4 text-sm"><div className="max-w-[85%] rounded-2xl rounded-tl-sm bg-white p-3 shadow-sm">Bonjou 👋 Je peux vous aider à commander <b>Pale Panyol Fasil</b>. Le livre coûte <b>${price.toFixed(0)} MXN</b>.</div>{chatStep !== "welcome" && <div className="ml-auto max-w-[80%] rounded-2xl rounded-tr-sm bg-[#d9fdd3] p-3 shadow-sm">Je souhaite commander le livre.</div>}{chatStep === "payment" && <div className="max-w-[85%] rounded-2xl rounded-tl-sm bg-white p-3 shadow-sm">Parfait ! Choisissez votre livraison, puis je vous conduirai au paiement sécurisé Mercado Pago.</div>}</div><div className="grid gap-2 p-3">{chatStep === "welcome" && <Button onClick={() => setChatStep("delivery")} className="bg-[#1da851]">Oui, je veux commander</Button>}{chatStep === "delivery" && <><Button onClick={() => { setDelivery("pickup-cdmx"); setChatStep("payment"); }} className="bg-[#1da851]">Retrait à Ciudad de México</Button><Button onClick={() => { setDelivery("pickup-tapachula"); setChatStep("payment"); }} variant="outline">Retrait à Tapachula</Button><Button onClick={() => { setDelivery("shipping"); setChatStep("payment"); }} variant="outline">Livraison nationale</Button></>}{chatStep === "payment" && <Button onClick={() => { setChatOpen(false); setCheckoutOpen(true); }} className="bg-[#d20d20]">Continuer la commande</Button>}</div></div>}
 
       <Dialog open={checkoutOpen} onOpenChange={setCheckoutOpen}><DialogContent className="max-h-[92vh] max-w-2xl overflow-y-auto rounded-3xl p-0"><DialogHeader className="bg-[#171717] p-6 text-left text-white"><DialogTitle className="font-serif text-3xl">Votre commande</DialogTitle></DialogHeader><div className="space-y-5 p-6">
