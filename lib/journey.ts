@@ -21,6 +21,5 @@ export function trackJourney(eventType: string, details: { source?: "website" | 
     orderId: details.orderId,
     metadata: details.metadata ?? {},
   });
-  if (navigator.sendBeacon) navigator.sendBeacon("/api/track", new Blob([body], { type: "application/json" }));
-  else void fetch("/api/track", { method: "POST", headers: { "content-type": "application/json" }, body, keepalive: true });
+  void fetch("/api/track", { method: "POST", headers: { "content-type": "application/json" }, body, keepalive: true }).catch(() => undefined);
 }
