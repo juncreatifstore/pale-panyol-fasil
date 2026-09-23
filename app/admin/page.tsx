@@ -1,7 +1,7 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { Activity, BookOpen, Boxes, CheckCircle2, CircleDollarSign, CreditCard, LayoutDashboard, LogOut, Megaphone, Menu, MousePointerClick, Plus, RefreshCw, Search, Settings2, ShoppingBag, Truck, Users, X } from "lucide-react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Activity, Bell, BellRing, BookOpen, Boxes, CheckCircle2, CircleDollarSign, CreditCard, LayoutDashboard, LogOut, Megaphone, Menu, MessageCircle, MousePointerClick, Plus, Radio, RefreshCw, Search, Settings2, ShoppingBag, Truck, Users, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -21,6 +21,7 @@ const str = (value: unknown) => String(value ?? "");
 const orderStatus: Record<string, string> = { pending: "En attente", payment_pending: "Paiement en attente", paid: "Payée", preparing: "Préparation", shipped: "Expédiée", delivered: "Livrée", cancelled: "Annulée", refunded: "Remboursée" };
 const journeyLabels: Record<string, string> = { page_view: "Visite du site", book_photo_view: "Photo consultée", summary_download: "Résumé téléchargé", whatsapp_opened: "WhatsApp ouvert", order_started: "Commande commencée", delivery_selected: "Livraison choisie", shipping_quote_requested: "Tarif demandé", shipping_quote_received: "Tarif reçu", checkout_created: "Commande créée", payment_page_view: "Page de paiement", payment_method_selected: "Moyen de paiement choisi", payment_submitted: "Paiement envoyé", payment_approved: "Paiement approuvé", payment_failed: "Paiement échoué" };
 const conversationSteps: Record<string, string> = { welcome: "Accueil", delivery: "Livraison", address: "Adresse", quote: "Tarifs", payment: "Paiement", tracking: "Suivi", completed: "Terminée", stopped: "Arrêtée" };
+type LiveAlert = { id: string; title: string; detail: string; createdAt: string; kind: "visit" | "whatsapp" | "step" | "order" | "payment" };
 const shipmentStatus: Record<string, string> = { pending: "En attente", label_created: "Étiquette créée", picked_up: "Collectée", in_transit: "En transit", out_for_delivery: "En livraison", delivered: "Livrée", exception: "Incident", cancelled: "Annulée" };
 const productionStatus: Record<string, string> = { planned: "Planifié", approved: "Approuvé", printing: "Impression", received: "Reçu", cancelled: "Annulé" };
 const campaignStatus: Record<string, string> = { draft: "Brouillon", active: "Active", paused: "En pause", completed: "Terminée" };
@@ -54,6 +55,11 @@ export default function AdminPage() {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
   const [search, setSearch] = useState("");
+  const [realtimeStatus, setRealtimeStatus] = useState<"connecting" | "live" | "error">("connecting");
+  const [liveAlerts, setLiveAlerts] = useState<LiveAlert[]>([]);
+  const [alertsEnabled, setAlertsEnabled] = useState(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
+  const dataRef = useRef<Data>(emptyData);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -62,6 +68,8 @@ export default function AdminPage() {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Chargement impossible");
       setData(result);
+      dataRef.current = result;
+      setLastSyncedAt(new Date());
     } catch (error) { setNotice(error instanceof Error ? error.message : "Chargement impossible"); }
     finally { setLoading(false); }
   }, []);
@@ -71,12 +79,63 @@ export default function AdminPage() {
       .then(async (response) => {
         const result = await response.json();
         if (!response.ok) throw new Error(result.error ?? "Chargement impossible");
-        if (active) setData(result);
+        if (active) { setData(result); dataRef.current = result; setLastSyncedAt(new Date()); }
       })
       .catch((error: unknown) => { if (active) setNotice(error instanceof Error ? error.message : "Chargement impossible"); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    const pushAlert = (alert: Omit<LiveAlert, "id" | "createdAt">) => {
+      const item = { ...alert, id: crypto.randomUUID(), createdAt: new Date().toISOString() };
+      setLiveAlerts((current) => [item, ...current].slice(0, 30));
+      if (alertsEnabled) {
+        try {
+          const audio = new AudioContext();
+          const oscillator = audio.createOscillator();
+          const gain = audio.createGain();
+          oscillator.connect(gain); gain.connect(audio.destination);
+          oscillator.frequency.value = alert.kind === "payment" ? 880 : 620;
+          gain.gain.setValueAtTime(0.06, audio.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + 0.18);
+          oscillator.start(); oscillator.stop(audio.currentTime + 0.18);
+        } catch { /* Le navigateur peut bloquer le son avant une interaction. */ }
+        if ("Notification" in window && Notification.permission === "granted") new Notification(alert.title, { body: alert.detail, tag: item.id });
+      }
+    };
+    const poll = async () => {
+      try {
+        const response = await fetch("/api/admin/data", { cache: "no-store" });
+        const next = await response.json() as Data & { error?: string };
+        if (!response.ok) throw new Error(next.error ?? "Synchronisation impossible");
+        const previous = dataRef.current;
+        if (previous !== emptyData) {
+          const knownEvents = new Set(previous.journeyEvents.map((item) => str(item.id)));
+          next.journeyEvents.filter((item) => !knownEvents.has(str(item.id))).reverse().forEach((row) => { const eventType = str(row.event_type); pushAlert({ kind: eventType === "page_view" ? "visit" : eventType.startsWith("payment_") ? "payment" : eventType === "checkout_created" ? "order" : "step", title: eventType === "page_view" ? "Nouvelle visite" : journeyLabels[eventType] ?? "Nouvelle étape", detail: `Session ${str(row.session_id).slice(0, 8)} · ${str(row.page_path) || str(row.source)}` }); });
+          const knownConversations = new Map(previous.conversations.map((item) => [str(item.id), item]));
+          next.conversations.forEach((row) => { const old = knownConversations.get(str(row.id)); if (!old) pushAlert({ kind: "whatsapp", title: "Nouvelle conversation WhatsApp", detail: `${str(row.customer_first_name) || "Nouveau client"} · ${str(row.wa_phone)}` }); else if (old.current_step !== row.current_step) pushAlert({ kind: "step", title: "Étape WhatsApp franchie", detail: `${str(row.customer_first_name) || str(row.wa_phone)} → ${conversationSteps[str(row.current_step)] ?? str(row.current_step)}` }); });
+          const knownMessages = new Set(previous.messages.map((item) => str(item.id)));
+          next.messages.filter((row) => !knownMessages.has(str(row.id)) && row.direction === "inbound").reverse().forEach((row) => pushAlert({ kind: "whatsapp", title: "Nouveau message WhatsApp", detail: str(row.content).slice(0, 100) || "Message reçu" }));
+          const knownOrders = new Set(previous.orders.map((item) => str(item.id)));
+          next.orders.filter((row) => !knownOrders.has(str(row.id))).reverse().forEach((row) => pushAlert({ kind: "order", title: "Nouvelle commande", detail: `${str(row.order_number)} · ${money(row.total_mxn)}` }));
+          const knownPayments = new Set(previous.payments.filter((item) => item.status === "approved").map((item) => str(item.id)));
+          next.payments.filter((row) => row.status === "approved" && !knownPayments.has(str(row.id))).reverse().forEach((row) => pushAlert({ kind: "payment", title: "Paiement approuvé", detail: `${money(row.amount_mxn)} encaissés` }));
+        }
+        dataRef.current = next; setData(next); setLastSyncedAt(new Date()); setRealtimeStatus("live");
+      } catch { setRealtimeStatus("error"); }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 10_000);
+    return () => window.clearInterval(timer);
+  }, [alertsEnabled]);
+
+  const enableAlerts = async () => {
+    if ("Notification" in window && Notification.permission === "default") await Notification.requestPermission();
+    setAlertsEnabled(true);
+    setNotice("Notifications temps réel activées");
+    window.setTimeout(() => setNotice(""), 2500);
+  };
 
   const run = async (method: "POST" | "PATCH", payload: Row, success: string, form?: HTMLFormElement) => {
     setSaving(true);
@@ -100,6 +159,12 @@ export default function AdminPage() {
   const orderStarts = eventCount("order_started"), checkouts = eventCount("checkout_created"), paymentViews = eventCount("payment_page_view");
   const pendingOrders = data.orders.filter((item) => item.status === "payment_pending").length;
   const activeConversations = data.conversations.filter((item) => !["completed", "tracking", "stopped"].includes(str(item.current_step))).length;
+  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+  const todayEvents = data.journeyEvents.filter((item) => new Date(str(item.created_at)).getTime() >= todayStart.getTime());
+  const todayVisits = new Set(todayEvents.filter((item) => item.event_type === "page_view").map((item) => str(item.session_id))).size;
+  const todayConversations = data.conversations.filter((item) => new Date(str(item.created_at)).getTime() >= todayStart.getTime()).length;
+  const todaySteps = todayEvents.filter((item) => item.event_type !== "page_view").length;
+  const todayPayments = data.payments.filter((item) => item.status === "approved" && new Date(str(item.paid_at ?? item.created_at)).getTime() >= todayStart.getTime()).length;
   const marketingSuggestions = [
     uniqueSessions >= 5 && orderStarts / uniqueSessions < .08 ? "Peu de visiteurs commencent une commande : placez une offre claire et un bouton Commander plus haut, avec le prix et la livraison visibles." : "Le bouton de commande attire correctement les visiteurs; testez maintenant deux variantes du texte pour améliorer encore le taux de clic.",
     orderStarts > 2 && checkouts / orderStarts < .45 ? "Beaucoup de clients quittent avant la création de la commande : simplifiez le formulaire et rassurez-les sur le paiement en espèces et les délais." : "Le passage du formulaire vers la commande est satisfaisant; concentrez les rappels sur les paiements non terminés.",
@@ -118,16 +183,18 @@ export default function AdminPage() {
     </aside>
     {mobileOpen && <button className="fixed inset-0 z-40 bg-slate-950/40 lg:hidden" onClick={() => setMobileOpen(false)} aria-label="Fermer" />}
     <div className="lg:pl-[280px]">
-      <header className="sticky top-0 z-30 flex h-20 items-center justify-between border-b border-slate-200 bg-white/95 px-4 backdrop-blur sm:px-7"><div className="flex items-center gap-3"><button onClick={() => setMobileOpen(true)} className="rounded-xl border p-2.5 lg:hidden"><Menu size={20} /></button><div><p className="text-xs font-bold uppercase tracking-[.16em] text-[#df482f]">Administration</p><h1 className="text-xl font-black text-slate-950 sm:text-2xl">{title}</h1></div></div><button onClick={() => void load()} disabled={loading} className="flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold"><RefreshCw size={16} className={loading ? "animate-spin" : ""} /><span className="hidden sm:inline">Actualiser</span></button></header>
+      <header className="sticky top-0 z-30 flex h-20 items-center justify-between border-b border-slate-200 bg-white/95 px-4 backdrop-blur sm:px-7"><div className="flex items-center gap-3"><button onClick={() => setMobileOpen(true)} className="rounded-xl border p-2.5 lg:hidden"><Menu size={20} /></button><div><p className="text-xs font-bold uppercase tracking-[.16em] text-[#df482f]">Administration</p><h1 className="text-xl font-black text-slate-950 sm:text-2xl">{title}</h1></div></div><div className="flex items-center gap-2"><span className={`hidden items-center gap-2 rounded-full px-3 py-2 text-xs font-black sm:flex ${realtimeStatus === "live" ? "bg-emerald-50 text-emerald-700" : realtimeStatus === "error" ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700"}`}><span className={`h-2 w-2 rounded-full ${realtimeStatus === "live" ? "animate-pulse bg-emerald-500" : realtimeStatus === "error" ? "bg-red-500" : "animate-pulse bg-amber-500"}`} />{realtimeStatus === "live" ? "LIVE · 10 S" : realtimeStatus === "error" ? "HORS LIGNE" : "CONNEXION"}</span><button onClick={() => void load()} disabled={loading} className="flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold"><RefreshCw size={16} className={loading ? "animate-spin" : ""} /><span className="hidden sm:inline">Actualiser</span></button></div></header>
       <div className="mx-auto max-w-[1500px] space-y-6 p-4 sm:p-7">
         <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-900"><b>Supabase actif :</b> toutes les opérations ci-dessous sont enregistrées dans la base réelle.</div>
 
         {section === "dashboard" && <>
+          <LiveKpiCenter visits={todayVisits} conversations={todayConversations} steps={todaySteps} payments={todayPayments} activeConversations={activeConversations} realtimeStatus={realtimeStatus} alerts={liveAlerts} alertsEnabled={alertsEnabled} lastSyncedAt={lastSyncedAt} onEnableAlerts={() => void enableAlerts()} />
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Metric label="Revenu confirmé" value={money(grossRevenue)} icon={CircleDollarSign} /><Metric label="Commandes" value={String(data.orders.length)} icon={ShoppingBag} /><Metric label="Livres disponibles" value={String(totalStock)} icon={Boxes} /><Metric label="Clients" value={String(data.customers.length)} icon={Users} /></div>
           <Panel title="Commandes récentes" description="Données réelles Supabase"><Orders rows={data.orders.slice(0, 6)} onChange={(id, status) => void run("PATCH", { action: "order_status", id, status }, "Statut enregistré")} /></Panel>
         </>}
 
         {section === "journey" && <>
+          <LiveKpiCenter visits={todayVisits} conversations={todayConversations} steps={todaySteps} payments={todayPayments} activeConversations={activeConversations} realtimeStatus={realtimeStatus} alerts={liveAlerts} alertsEnabled={alertsEnabled} lastSyncedAt={lastSyncedAt} onEnableAlerts={() => void enableAlerts()} />
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
             <Metric label="Visiteurs suivis" value={String(uniqueSessions)} icon={MousePointerClick} />
             <Metric label="Commandes commencées" value={String(orderStarts)} icon={ShoppingBag} />
@@ -197,6 +264,25 @@ export default function AdminPage() {
       </div>
     </div>
   </main>;
+}
+
+function LiveKpiCenter({ visits, conversations, steps, payments, activeConversations, realtimeStatus, alerts, alertsEnabled, lastSyncedAt, onEnableAlerts }: { visits: number; conversations: number; steps: number; payments: number; activeConversations: number; realtimeStatus: "connecting" | "live" | "error"; alerts: LiveAlert[]; alertsEnabled: boolean; lastSyncedAt: Date | null; onEnableAlerts: () => void }) {
+  const iconByKind = { visit: MousePointerClick, whatsapp: MessageCircle, step: Activity, order: ShoppingBag, payment: CircleDollarSign };
+  const colorByKind = { visit: "bg-blue-50 text-blue-700", whatsapp: "bg-emerald-50 text-emerald-700", step: "bg-violet-50 text-violet-700", order: "bg-amber-50 text-amber-700", payment: "bg-red-50 text-red-700" };
+  const metrics: Array<[string, number, typeof Activity]> = [["Nouvelles visites", visits, MousePointerClick], ["Conversations WhatsApp", conversations, MessageCircle], ["Étapes franchies", steps, Activity], ["Conversations actives", activeConversations, Users], ["Paiements confirmés", payments, CircleDollarSign]];
+  return <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+    <div className="flex flex-col gap-3 border-b bg-slate-950 px-5 py-4 text-white sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-white/10"><Radio className={realtimeStatus === "live" ? "animate-pulse text-emerald-400" : "text-amber-300"} /></span><div><h2 className="font-black">KPI en temps réel</h2><p className="text-xs text-slate-300">Aujourd’hui · synchronisation sécurisée toutes les 10 s{lastSyncedAt ? ` · ${lastSyncedAt.toLocaleTimeString("fr-MX", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : ""}</p></div></div>
+      <button onClick={onEnableAlerts} disabled={alertsEnabled} className={`flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-black ${alertsEnabled ? "bg-emerald-500/20 text-emerald-300" : "bg-white text-slate-950"}`}>{alertsEnabled ? <BellRing size={17} /> : <Bell size={17} />}{alertsEnabled ? "Alertes activées" : "Activer les alertes"}</button>
+    </div>
+    <div className="grid gap-px bg-slate-200 sm:grid-cols-2 xl:grid-cols-5">
+      {metrics.map(([label, value, Icon]) => <div key={label} className="bg-white p-5"><div className="flex items-center justify-between"><div><p className="text-xs font-bold uppercase tracking-wide text-slate-500">{label}</p><p className="mt-2 text-3xl font-black text-slate-950">{value}</p></div><span className="grid h-10 w-10 place-items-center rounded-xl bg-slate-100 text-[#123f91]"><Icon size={19} /></span></div></div>)}
+    </div>
+    <div className="border-t p-5">
+      <div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-black text-slate-950">Activité en direct</h3><span className="text-xs font-semibold text-slate-500">{alerts.length ? `${alerts.length} notification(s)` : "En attente d’une nouvelle activité"}</span></div>
+      <div className="grid max-h-72 gap-2 overflow-y-auto pr-1 lg:grid-cols-2">{alerts.slice(0, 12).map((alert) => { const Icon = iconByKind[alert.kind]; return <div key={alert.id} className="flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50 p-3"><span className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${colorByKind[alert.kind]}`}><Icon size={17} /></span><div className="min-w-0"><p className="text-sm font-black text-slate-900">{alert.title}</p><p className="truncate text-xs text-slate-500">{alert.detail}</p></div><time className="ml-auto shrink-0 text-[11px] font-semibold text-slate-400">{new Date(alert.createdAt).toLocaleTimeString("fr-MX", { hour: "2-digit", minute: "2-digit" })}</time></div>; })}{alerts.length === 0 && <div className="rounded-xl border border-dashed p-6 text-center text-sm text-slate-500 lg:col-span-2">Les prochaines visites, conversations, étapes, commandes et paiements apparaîtront ici instantanément.</div>}</div>
+    </div>
+  </section>;
 }
 
 function Metric({ label, value, icon: Icon }: { label: string; value: string; icon: typeof CircleDollarSign }) { return <div className="rounded-2xl border bg-white p-5 shadow-sm"><div className="flex items-center justify-between"><div><p className="text-sm font-semibold text-slate-500">{label}</p><p className="mt-2 text-2xl font-black text-slate-950">{value}</p></div><span className="grid h-10 w-10 place-items-center rounded-xl bg-blue-50 text-[#123f91]"><Icon size={19} /></span></div></div>; }
