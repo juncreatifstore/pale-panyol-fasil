@@ -173,6 +173,8 @@ export async function PATCH(request: Request) {
       cdmx_delivery: clean(body.cdmxDelivery, 1000),
       other_zones_delivery: clean(body.otherZonesDelivery, 1000),
       after_sales_service: clean(body.afterSalesService, 1500),
+      after_sales_whatsapp: clean(body.afterSalesWhatsapp, 40) || null,
+      after_sales_email: clean(body.afterSalesEmail, 200) || null,
       origin_postal_code: clean(body.originPostalCode, 10) || null,
       origin_city: clean(body.originCity, 100) || null,
       origin_state: clean(body.originState, 100) || null,
