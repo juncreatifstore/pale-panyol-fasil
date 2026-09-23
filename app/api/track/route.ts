@@ -14,8 +14,9 @@ export async function POST(request: Request) {
   try {
     const body = await request.json() as Record<string, unknown>;
     const eventType = clean(body.eventType, 50);
-    const sessionId = clean(body.sessionId, 100);
-    if (!allowedEvents.has(eventType) || sessionId.length < 8) return NextResponse.json({ error: "Événement invalide" }, { status: 400 });
+    const suppliedSession = clean(body.sessionId, 100);
+    const sessionId = suppliedSession.length >= 8 ? suppliedSession : crypto.randomUUID();
+    if (!allowedEvents.has(eventType)) return NextResponse.json({ error: "Événement invalide" }, { status: 400 });
 
     const metadata = body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata)
       ? JSON.parse(JSON.stringify(body.metadata).slice(0, 4000))
