@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { trackJourney } from "@/lib/journey";
 
 declare global { interface Window { MercadoPago: new (key: string, options?: Record<string, unknown>) => { bricks: () => { create: (name: string, container: string, settings: Record<string, unknown>) => Promise<{ unmount: () => void }> } } } }
 const endpoint = "https://xvmvppfziiymqjvhciax.supabase.co/functions/v1/mercado-pago-checkout";
@@ -15,6 +16,7 @@ export default function PaymentClient() {
 
   useEffect(() => {
     if (mounted.current) return; mounted.current = true;
+    trackJourney("payment_page_view", { source: "payment", orderId: order });
     let controller: { unmount: () => void } | undefined;
     (async () => {
       const response = await fetch(`${endpoint}?order=${encodeURIComponent(order)}&token=${encodeURIComponent(token)}`);
@@ -44,13 +46,15 @@ export default function PaymentClient() {
         },
         callbacks: {
           onReady: () => { setState("ready"); setMessage(""); },
-          onError: (error: unknown) => { console.error(error); setState("error"); setMessage("Fòm Mercado Pago a pa chaje. Tanpri rafrechi paj la."); },
+          onError: (error: unknown) => { console.error(error); trackJourney("payment_failed", { source: "payment", orderId: order, metadata: { stage: "brick" } }); setState("error"); setMessage("Fòm Mercado Pago a pa chaje. Tanpri rafrechi paj la."); },
           onSubmit: async ({ selectedPaymentMethod, formData }: { selectedPaymentMethod: string; formData: Record<string, unknown> }) => {
+            trackJourney("payment_method_selected", { source: "payment", orderId: order, metadata: { method: selectedPaymentMethod } });
+            trackJourney("payment_submitted", { source: "payment", orderId: order, metadata: { method: selectedPaymentMethod } });
             setState("loading"); setMessage("N ap verifye peman an…");
             const pay = await fetch(endpoint, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ order, checkout_token: token, selected_payment_method: selectedPaymentMethod, payment_data: formData }) });
             const result = await pay.json();
-            if (!pay.ok) { setState("error"); setMessage(result.error || "Peman an pa pase. Verifye enfòmasyon yo."); throw new Error(result.error); }
-            if (result.status === "approved") { setState("approved"); setMessage("Peman konfime ✅ N ap voye konfimasyon an sou WhatsApp."); }
+            if (!pay.ok) { trackJourney("payment_failed", { source: "payment", orderId: order, metadata: { method: selectedPaymentMethod } }); setState("error"); setMessage(result.error || "Peman an pa pase. Verifye enfòmasyon yo."); throw new Error(result.error); }
+            if (result.status === "approved") { trackJourney("payment_approved", { source: "payment", orderId: order, metadata: { method: selectedPaymentMethod } }); setState("approved"); setMessage("Peman konfime ✅ N ap voye konfimasyon an sou WhatsApp."); }
             else if (result.status === "pending") {
               setState("pending");
               setMessage("Peman an an atant. Swiv enstriksyon Mercado Pago yo; n ap avèti w sou WhatsApp lè li konfime.");
