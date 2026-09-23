@@ -166,6 +166,7 @@ export async function PATCH(request: Request) {
       book_pages: pages,
       book_chapters: clean(body.bookChapters, 3000) || null,
       summary_pdf_url: clean(body.summaryPdfUrl, 1000) || null,
+      homepage_video_url: clean(body.homepageVideoUrl, 1000) || null,
       photo_urls: lines(body.photoUrls),
       book_benefits: lines(body.bookBenefits),
       testimonials: lines(body.testimonials),
